@@ -7,12 +7,15 @@
   <style>
     body { font-family: sans-serif; max-width: 480px; margin: auto; padding: 1rem; }
     h1 { text-align: center; margin-bottom: 1rem; }
-    form { display: grid; gap: 0.75rem; margin-bottom: 1rem; }
+    form { display: grid; gap: 0.75rem; margin-bottom: 0.5rem; }
     label { display: flex; flex-direction: column; font-size: 0.9rem; }
-    input, select, button { padding: 0.5rem; font-size: 1rem; border-radius: 0.25rem; border: 1px solid #ccc; }
-    table { width: 100%; border-collapse: collapse; }
+    select, button, input[type="checkbox"] { padding: 0.5rem; font-size: 1rem; border-radius: 0.25rem; border: 1px solid #ccc; }
+    select:disabled { background: #eee; color: #666; }
+    .controls { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
     th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
     th { background: #f4f4f4; }
+    #exportCsv { margin-bottom: 1rem; }
   </style>
 </head>
 <body>
@@ -20,7 +23,7 @@
   <form id="scoreForm">
     <label>
       Target #:
-      <input type="number" id="target" min="1" max="100" required />
+      <select id="target" required></select>
     </label>
     <label>
       Arrows Used:
@@ -28,7 +31,7 @@
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="3">3</option>
-        <option value="4+">4+</option>
+        <option value="4+">4+ (miss)</option>
       </select>
     </label>
     <label>
@@ -38,8 +41,12 @@
         <option value="Wound">Wound</option>
       </select>
     </label>
-    <button type="submit">Add Score</button>
+    <button type="submit">Add / Update Score</button>
   </form>
+  <div class="controls">
+    <label><input type="checkbox" id="showAll" checked /> Show all targets</label>
+    <button id="exportCsv">Export to CSV</button>
+  </div>
 
   <table id="scoreTable">
     <thead>
@@ -61,14 +68,26 @@
 
   <script>
     const form = document.getElementById('scoreForm');
+    const targetSelect = document.getElementById('target');
+    const arrowsSelect = document.getElementById('arrows');
+    const resultSelect = document.getElementById('result');
+    const showAllCheckbox = document.getElementById('showAll');
     const tbody = document.querySelector('#scoreTable tbody');
     const totalEl = document.getElementById('runningTotal');
+    const exportBtn = document.getElementById('exportCsv');
 
-    // point settings
+    // Populate target dropdown 1-25
+    for (let n = 1; n <= 25; n++) {
+      const opt = document.createElement('option');
+      opt.value = n;
+      opt.textContent = n;
+      targetSelect.appendChild(opt);
+    }
+
     const points = {
-      Kill:    { '1': 20, '2': 14, '3': 8 },
-      Wound:   { '1': 17, '2': 11, '3': 5 },
-      '4+':    0
+      Kill: { '1': 20, '2': 14, '3': 8 },
+      Wound: { '1': 17, '2': 11, '3': 5 },
+      '4+': 0
     };
 
     let entries = JSON.parse(localStorage.getItem('archeryEntries') || '[]');
@@ -76,8 +95,22 @@
     function updateTable() {
       tbody.innerHTML = '';
       let running = 0;
-      entries.forEach(e => {
-        const score = e.arrows === '4+'
+      // Determine which targets to show
+      const showAll = showAllCheckbox.checked;
+      let displayTargets = [];
+      if (showAll) {
+        for (let t = 1; t <= 25; t++) {
+          const found = entries.find(e => +e.target === t);
+          displayTargets.push({ target: t, arrows: found ? found.arrows : '', result: found ? found.result : '' });
+        }
+      } else {
+        displayTargets = entries.map(e => ({ ...e }));
+      }
+      // Sort by numeric target
+      displayTargets.sort((a, b) => +a.target - +b.target);
+
+      displayTargets.forEach(e => {
+        const score = e.arrows === '4+' || e.arrows === ''
           ? points['4+']
           : points[e.result][e.arrows];
         running += score;
@@ -94,26 +127,69 @@
       localStorage.setItem('archeryEntries', JSON.stringify(entries));
     }
 
+    arrowsSelect.addEventListener('change', () => {
+      if (arrowsSelect.value === '4+') {
+        resultSelect.disabled = true;
+        resultSelect.value = '';
+      } else {
+        resultSelect.disabled = false;
+      }
+    });
+
+    targetSelect.addEventListener('change', () => {
+      const tgt = targetSelect.value;
+      const existing = entries.find(e => e.target === tgt);
+      if (existing) {
+        arrowsSelect.value = existing.arrows;
+        resultSelect.value = existing.result;
+      } else {
+        arrowsSelect.value = '1';
+        resultSelect.value = 'Kill';
+        resultSelect.disabled = false;
+      }
+      arrowsSelect.dispatchEvent(new Event('change'));
+    });
+
     form.addEventListener('submit', e => {
       e.preventDefault();
-      const target = form.target.value;
-      const arrows = form.arrows.value;
-      const result = form.result.value;
-      entries.push({ target, arrows, result });
-      form.reset();
+      const tgt = targetSelect.value;
+      const arrows = arrowsSelect.value;
+      const result = resultSelect.value;
+      const idx = entries.findIndex(e => e.target === tgt);
+      if (idx > -1) {
+        entries[idx] = { target: tgt, arrows, result };
+      } else {
+        entries.push({ target: tgt, arrows, result });
+      }
       updateTable();
     });
 
-    // initialize
-    updateTable();
-  </script>
+    exportBtn.addEventListener('click', () => {
+      const header = ['Target', 'Arrows', 'Result', 'Score'];
+      const rows = entries.map(e => {
+        const score = e.arrows === '4+'
+          ? points['4+']
+          : points[e.result][e.arrows];
+        return [e.target, e.arrows, e.result, score];
+      });
+      const csvContent = [header, ...rows]
+        .map(r => r.join(','))
+        .join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const now = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `archery-score-${now}.csv`;
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+    });
 
-  <!--
-    To host on GitHub Pages:
-    1. Create a new repo (e.g. 3d-archery-scoring).
-    2. Push this index.html to the repo root.
-    3. In GitHub settings, enable Pages from the main branch.
-    4. Your site will be available at https://<username>.github.io/3d-archery-scoring/
-  -->
+    // Event listeners for controls
+    showAllCheckbox.addEventListener('change', () => updateTable());
+
+    // initial load
+    updateTable();
+    targetSelect.dispatchEvent(new Event('change'));
+  </script>
 </body>
 </html>
