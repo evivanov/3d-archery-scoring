@@ -31,7 +31,7 @@
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="3">3</option>
-        <option value="4+">4+ (miss)</option>
+        <option value="Miss">Miss</option>
       </select>
     </label>
     <label>
@@ -87,7 +87,7 @@
     const points = {
       Kill: { '1': 20, '2': 14, '3': 8 },
       Wound: { '1': 17, '2': 11, '3': 5 },
-      '4+': 0
+      Miss: 0
     };
 
     let entries = JSON.parse(localStorage.getItem('archeryEntries') || '[]');
@@ -95,7 +95,6 @@
     function updateTable() {
       tbody.innerHTML = '';
       let running = 0;
-      // Determine which targets to show
       const showAll = showAllCheckbox.checked;
       let displayTargets = [];
       if (showAll) {
@@ -106,12 +105,11 @@
       } else {
         displayTargets = entries.map(e => ({ ...e }));
       }
-      // Sort by numeric target
       displayTargets.sort((a, b) => +a.target - +b.target);
 
       displayTargets.forEach(e => {
-        const score = e.arrows === '4+' || e.arrows === ''
-          ? points['4+']
+        const score = e.arrows === 'Miss' || e.arrows === ''
+          ? points['Miss']
           : points[e.result][e.arrows];
         running += score;
         const row = document.createElement('tr');
@@ -128,7 +126,7 @@
     }
 
     arrowsSelect.addEventListener('change', () => {
-      if (arrowsSelect.value === '4+') {
+      if (arrowsSelect.value === 'Miss') {
         resultSelect.disabled = true;
         resultSelect.value = '';
       } else {
@@ -167,8 +165,8 @@
     exportBtn.addEventListener('click', () => {
       const header = ['Target', 'Arrows', 'Result', 'Score'];
       const rows = entries.map(e => {
-        const score = e.arrows === '4+'
-          ? points['4+']
+        const score = e.arrows === 'Miss'
+          ? points['Miss']
           : points[e.result][e.arrows];
         return [e.target, e.arrows, e.result, score];
       });
@@ -184,8 +182,7 @@
       link.click();
     });
 
-    // Event listeners for controls
-    showAllCheckbox.addEventListener('change', () => updateTable());
+    showAllCheckbox.addEventListener('change', updateTable);
 
     // initial load
     updateTable();
