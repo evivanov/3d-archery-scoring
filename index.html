@@ -120,6 +120,12 @@
 
     // Load initial remote setting and fetch leaderboard
     window.addEventListener('DOMContentLoaded', () => {
+      // Load stored username
+      const storedName = localStorage.getItem('username');
+      if (storedName) {
+        usernameInput.value = storedName;
+      }
+      
       const saved = localStorage.getItem('useRemote') === 'true';
       useRemoteCheckbox.checked = saved;
       toggleRemoteUI(saved);
@@ -197,6 +203,12 @@
     });
 
     form.addEventListener('submit', async e => {
+      // store username locally
+      const name = usernameInput.value.trim();
+      if (name) {
+        localStorage.setItem('username', name);
+      }
+      
       e.preventDefault();
       const name = usernameInput.value.trim();
       const tgt = targetSelect.value;
