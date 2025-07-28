@@ -10,17 +10,16 @@
     form { display: grid; gap: 0.75rem; margin-bottom: 0.5rem; }
     label { display: flex; flex-direction: column; font-size: 0.9rem; }
     select, textarea, input, button { padding: 0.5rem; font-size: 1rem; border-radius: 0.25rem; border: 1px solid #ccc; }
-    select:disabled, input:disabled { background: #eee; color: #666; }
-    textarea { resize: vertical; }
     .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
     th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
     th { background: #f4f4f4; }
     .hidden { display: none; }
   </style>
-  <!-- Firebase SDKs -->
+  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
+  <!-- Load environment config -->
   <script src="env.js"></script>
 </head>
 <body>
@@ -30,251 +29,141 @@
   </div>
   <form id="scoreForm">
     <div id="nameField" class="hidden">
-      <label>Name:
-        <input type="text" id="username" placeholder="Your name" />
-      </label>
+      <label>Name:<input type="text" id="username" placeholder="Your name" /></label>
     </div>
-    <label>Target #:
-      <select id="target" required></select>
-    </label>
-    <label>Arrows Used:
-      <select id="arrows">
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="Miss">Miss</option>
-        <option value="Custom">Custom</option>
-      </select>
-    </label>
-    <label>Result:
-      <select id="result">
-        <option value="Kill">Kill</option>
-        <option value="Wound">Wound</option>
-      </select>
-    </label>
-    <label id="customLabel" class="hidden">Custom Score:
-      <input type="number" id="customScore" placeholder="Enter score" min="0" />
-    </label>
-    <label>Notes:
-      <textarea id="notes" rows="2" placeholder="Add any notes..."></textarea>
-    </label>
-    <button type="submit">Add / Update Score</button>
+    <label>Target #:<select id="target" required></select></label>
+    <label>Arrows Used:<select id="arrows">
+      <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+      <option value="Miss">Miss</option><option value="Custom">Custom</option>
+    </select></label>
+    <label>Result:<select id="result"><option>Kill</option><option>Wound</option></select></label>
+    <label id="customLabel" class="hidden">Custom Score:<input type="number" id="customScore" min="0" /></label>
+    <label>Notes:<textarea id="notes" rows="2"></textarea></label>
+    <button type="submit">Add / Update</button>
   </form>
   <div class="controls">
     <label><input type="checkbox" id="showAll" checked /> Show all targets</label>
-    <button id="exportCsv" type="button">Export to CSV</button>
+    <button id="exportCsv" type="button">Export CSV</button>
     <button id="resetBtn" type="button">Reset All</button>
   </div>
-  <table id="scoreTable">
-    <thead><tr><th>Target</th><th>Arrows</th><th>Result</th><th>Score</th><th>Notes</th></tr></thead>
-    <tbody></tbody>
-    <tfoot><tr><th colspan="3">Total</th><th id="runningTotal">0</th><th></th></tr></tfoot>
-  </table>
+  <table id="scoreTable"><thead><tr><th>Target</th><th>Arrows</th><th>Result</th><th>Score</th><th>Notes</th></tr></thead><tbody></tbody><tfoot><tr><th colspan="3">Total</th><th id="runningTotal">0</th><th></th></tr></tfoot></table>
   <h2>Leaderboard</h2>
-  <div class="controls">
-    <button id="refreshBtn" type="button" class="hidden">Refresh Leaderboard</button>
-  </div>
-  <table id="leaderboard">
-    <thead><tr><th>Name</th><th>Total Score</th><th>Date</th></tr></thead>
-    <tbody></tbody>
-  </table>
-  <script>
-    // Firebase setup
-    let firebaseInitialized = false;
-    let db = null;
-    const useRemoteCheckbox = document.getElementById('useRemote');
-    const nameField = document.getElementById('nameField');
-    const usernameInput = document.getElementById('username');
-    const lbBody = document.querySelector('#leaderboard tbody');
-    const refreshBtn = document.getElementById('refreshBtn');
+  <div class="controls"><button id="refreshBtn" class="hidden">Refresh Leaderboard</button></div>
+  <table id="leaderboard"><thead><tr><th>Name</th><th>Total Score</th><th>Date</th></tr></thead><tbody></tbody></table>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Elements
+  const useRemote = document.getElementById('useRemote');
+  const nameField = document.getElementById('nameField');
+  const username = document.getElementById('username');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const target = document.getElementById('target');
+  const arrows = document.getElementById('arrows');
+  const result = document.getElementById('result');
+  const customLabel = document.getElementById('customLabel');
+  const customScore = document.getElementById('customScore');
+  const notes = document.getElementById('notes');
+  const form = document.getElementById('scoreForm');
+  const showAll = document.getElementById('showAll');
+  const exportCsv = document.getElementById('exportCsv');
+  const resetBtn = document.getElementById('resetBtn');
+  const tbody = document.querySelector('#scoreTable tbody');
+  const totalEl = document.getElementById('runningTotal');
+  const lbBody = document.querySelector('#leaderboard tbody');
 
-    function initRemote() {
-      if (!firebaseInitialized) {
-        firebase.initializeApp(window._env_);
-        db = firebase.firestore();
-        firebaseInitialized = true;
-      }
+  // Populate targets
+  for (let i = 1; i <= 25; i++) target.append(new Option(i, i));
+
+  const points = {Kill:{1:20,2:14,3:8},Wound:{1:17,2:11,3:5},Miss:0};
+  let entries = JSON.parse(localStorage.getItem('archeryEntries')||'[]');
+
+  let db = null; let initialized = false;
+  function initFirestore() {
+    if (!initialized) { firebase.initializeApp(window._env_); db = firebase.firestore(); initialized = true; }
+    fetchLeaderboard();
+  }
+
+  function toggleRemote(on) {
+    nameField.classList.toggle('hidden', !on);
+    username.required = on;
+    refreshBtn.classList.toggle('hidden', !on);
+    if (on) initFirestore(); else lbBody.innerHTML = '';
+    localStorage.setItem('useRemote', on);
+  }
+
+  useRemote.checked = localStorage.getItem('useRemote')==='true';
+  useRemote.addEventListener('change', () => toggleRemote(useRemote.checked));
+  toggleRemote(useRemote.checked);
+
+  // Persist username
+  const savedName = localStorage.getItem('username');
+  if (savedName) username.value = savedName;
+
+  arrows.addEventListener('change', () => {
+    const v = arrows.value;
+    result.disabled = (v==='Miss'||v==='Custom');
+    customLabel.classList.toggle('hidden', v!=='Custom');
+    if (v!=='Custom') customScore.value = '';
+  });
+
+  function updateTable() {
+    tbody.innerHTML=''; let total=0;
+    const list = showAll.checked
+      ? Array.from({length:25},(_,i)=>entries.find(e=>+e.target===i+1)||{target:i+1,arrows:'',result:'',notes:'',customScore:null})
+      : entries.slice();
+    list.sort((a,b)=>a.target-b.target).forEach(e=>{
+      let sc = e.arrows==='Custom'?+e.customScore:(e.arrows==='Miss'?0:points[e.result][e.arrows]||0);
+      total+=sc;
+      const tr = `<tr><td>${e.target}</td><td>${e.arrows}</td><td>${e.result}</td><td>${sc}</td><td>${e.notes||''}</td></tr>`;
+      tbody.insertAdjacentHTML('beforeend',tr);
+    });
+    totalEl.textContent = total;
+    localStorage.setItem('archeryEntries',JSON.stringify(entries));
+  }
+
+  form.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    const name = username.value.trim(); if (name) localStorage.setItem('username',name);
+    const ent = {target:target.value,arrows:arrows.value,result:result.value,notes:notes.value,customScore:customScore.value};
+    const idx = entries.findIndex(e=>e.target===ent.target);
+    if (idx>-1) entries[idx]=ent; else entries.push(ent);
+    updateTable();
+    if (useRemote.checked && db && name) {
+      const total = entries.reduce((s,e)=>s + (e.arrows==='Custom'?+e.customScore:(e.arrows==='Miss'?0:points[e.result][e.arrows]||0)),0);
+      await db.collection('leaderboard').doc(name).set({name,totalScore:total,date:new Date().toISOString()});
       fetchLeaderboard();
     }
+  });
 
-    function toggleRemoteUI(remote) {
-      if (remote) {
-        nameField.classList.remove('hidden');
-        usernameInput.required = true;
-        refreshBtn.classList.remove('hidden');
-        initRemote();
-      } else {
-        nameField.classList.add('hidden');
-        usernameInput.required = false;
-        refreshBtn.classList.add('hidden');
-        lbBody.innerHTML = '';
-      }
-    }
-
-    // Remember remote setting
-    useRemoteCheckbox.addEventListener('change', () => {
-      const remote = useRemoteCheckbox.checked;
-      localStorage.setItem('useRemote', remote);
-      toggleRemoteUI(remote);
+  exportCsv.addEventListener('click', ()=>{
+    const hdr=['Target','Arrows','Result','Score','Notes'];
+    const rows = entries.map(e=>{
+      const sc=e.arrows==='Custom'?+e.customScore:(e.arrows==='Miss'?0:points[e.result][e.arrows]||0);
+      return [e.target,e.arrows,e.result,sc,e.notes||''];
     });
+    const csv = [hdr,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
+    const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=`scores-${new Date().toISOString()}.csv`;a.click();
+  });
 
-    // Load initial remote setting and fetch leaderboard
-    window.addEventListener('DOMContentLoaded', () => {
-      // Load stored username
-      const storedName = localStorage.getItem('username');
-      if (storedName) {
-        usernameInput.value = storedName;
-      }
-      
-      const saved = localStorage.getItem('useRemote') === 'true';
-      useRemoteCheckbox.checked = saved;
-      toggleRemoteUI(saved);
+  resetBtn.addEventListener('click', ()=>{ if (confirm('Reset all entries?')) {entries=[];localStorage.removeItem('archeryEntries');form.reset();updateTable();}});
+  showAll.addEventListener('change', updateTable);
+
+  document.getElementById('refreshBtn').addEventListener('click',()=>fetchLeaderboard());
+
+  async function fetchLeaderboard() {
+    lbBody.innerHTML='';
+    if (!db) return;
+    const docs = await db.collection('leaderboard').orderBy('totalScore','desc').limit(10).get();
+    docs.forEach(doc=>{
+      const d=doc.data();
+      lbBody.insertAdjacentHTML('beforeend', `<tr><td>${d.name}</td><td>${d.totalScore}</td><td>${new Date(d.date).toLocaleString()}</td></tr>`);
     });
+  }
 
-    // Refresh button
-    refreshBtn.addEventListener('click', () => {
-      if (db) fetchLeaderboard();
-    });
-
-    // Common DOM refs
-    const form = document.getElementById('scoreForm');
-    const targetSelect = document.getElementById('target');
-    const arrowsSelect = document.getElementById('arrows');
-    const resultSelect = document.getElementById('result');
-    const customLabel = document.getElementById('customLabel');
-    const customScoreInput = document.getElementById('customScore');
-    const notesInput = document.getElementById('notes');
-    const showAllCheckbox = document.getElementById('showAll');
-    const exportBtn = document.getElementById('exportCsv');
-    const resetBtn = document.getElementById('resetBtn');
-    const tbody = document.querySelector('#scoreTable tbody');
-    const totalEl = document.getElementById('runningTotal');
-
-    // Populate targets
-    for (let i = 1; i <= 25; i++) {
-      const opt = document.createElement('option'); opt.value = i; opt.textContent = i;
-      targetSelect.appendChild(opt);
-    }
-
-    const points = { Kill:{1:20,2:14,3:8}, Wound:{1:17,2:11,3:5}, Miss:0 };
-    let entries = JSON.parse(localStorage.getItem('archeryEntries') || '[]');
-
-    function updateTable() {
-      tbody.innerHTML = '';
-      let running = 0;
-      let display = showAllCheckbox.checked
-        ? Array.from({length:25},(_,i)=>entries.find(e=>+e.target===i+1)||{target:i+1,arrows:'',result:'',notes:'',customScore:null})
-        : entries.slice();
-      display.sort((a,b)=>+a.target-+b.target).forEach(e=>{
-        let score = e.arrows==='Custom'?Number(e.customScore)||0
-          : e.arrows&&e.arrows!=='Miss'?points[e.result][e.arrows]:0;
-        running += score;
-        const row = document.createElement('tr');
-        row.innerHTML = `<td>${e.target}</td><td>${e.arrows}</td><td>${e.result}</td><td>${score}</td><td>${e.notes||''}</td>`;
-        tbody.appendChild(row);
-      });
-      totalEl.textContent = running;
-      localStorage.setItem('archeryEntries', JSON.stringify(entries));
-    }
-
-    arrowsSelect.addEventListener('change', () => {
-      if (['Miss','Custom'].includes(arrowsSelect.value)) {
-        resultSelect.disabled = true;
-        resultSelect.value = '';
-        customLabel.classList.toggle('hidden', arrowsSelect.value !== 'Custom');
-      } else {
-        resultSelect.disabled = false;
-        customLabel.classList.add('hidden');
-        customScoreInput.value = '';
-      }
-    });
-
-    targetSelect.addEventListener('change', () => {
-      const ex = entries.find(e => e.target === targetSelect.value);
-      if (ex) {
-        arrowsSelect.value = ex.arrows;
-        resultSelect.value = ex.result || 'Kill';
-        notesInput.value = ex.notes || '';
-        customScoreInput.value = ex.customScore || '';
-      } else {
-        arrowsSelect.value = '1'; resultSelect.value = 'Kill'; notesInput.value = ''; customScoreInput.value = '';
-      }
-      arrowsSelect.dispatchEvent(new Event('change'));
-    });
-
-    form.addEventListener('submit', async e => {
-      // store username locally
-      const name = usernameInput.value.trim();
-      if (name) {
-        localStorage.setItem('username', name);
-      }
-      
-      e.preventDefault();
-      const name = usernameInput.value.trim();
-      const tgt = targetSelect.value;
-      const arrows = arrowsSelect.value;
-      const result = resultSelect.value;
-      const notes = notesInput.value.trim();
-      const customScore = arrows === 'Custom' ? customScoreInput.value.trim() : null;
-      const idx = entries.findIndex(x => x.target === tgt);
-      const entry = {target: tgt, arrows, result, notes, customScore};
-      if (idx > -1) entries[idx] = entry; else entries.push(entry);
-      updateTable();
-
-      if (useRemoteCheckbox.checked && db) {
-        const totalScore = entries.reduce((s,e) => s + (e.arrows==='Custom'?Number(e.customScore)||0:(e.arrows!=='Miss'?points[e.result][e.arrows]:0)), 0);
-        const date = new Date().toISOString();
-        try {
-          await db.collection('leaderboard').doc(name).set({name, totalScore, date});
-          fetchLeaderboard();
-        } catch (err) { console.error(err); }
-      }
-    });
-
-    exportBtn.addEventListener('click', () => {
-      const header=['Target','Arrows','Result','Score','Notes'];
-      const rows = entries.map(e => {
-        let score = e.arrows==='Custom'?Number(e.customScore)||0:(e.arrows==='Miss'?0:points[e.result][e.arrows]);
-        return [e.target,e.arrows,e.result,score,e.notes||''];
-      });
-      const csv = [header, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const now = new Date().toISOString().replace(/[:.]/g,'-');
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `scores-${now}.csv`; a.click();
-    });
-
-    resetBtn.addEventListener('click', () => { if (confirm('Reset all entries? This cannot be undone.')) { entries = []; localStorage.removeItem('archeryEntries'); form.reset(); customLabel.classList.add('hidden'); updateTable(); } });
-    showAllCheckbox.addEventListener('change', updateTable);
-
-    async function fetchLeaderboard() {
-      lbBody.innerHTML = '';
-      if (!useRemoteCheckbox.checked || !db) return;
-      const snapshot = await db.collection('leaderboard').orderBy('totalScore','desc').limit(10).get();
-      snapshot.docs.forEach(doc => {
-        const {name, totalScore, date} = doc.data();
-        const row = document.createElement('tr');
-        row.innerHTML = `<td>${name}</td><td>${totalScore}</td><td>${new Date(date).toLocaleString()}</td>`;
-        lbBody.appendChild(row);
-      });
-    }
-
-    // Init on load
-    window.addEventListener('DOMContentLoaded', () => {
-      const saved = localStorage.getItem('useRemote') === 'true';
-      useRemoteCheckbox.checked = saved;
-      toggleRemoteUI(saved);
-      updateTable();
-      targetSelect.dispatchEvent(new Event('change'));
-    });
-
-    // Helper to toggle UI
-    function toggleRemoteUI(remote) {
-      nameField.classList.toggle('hidden', !remote);
-      usernameInput.required = remote;
-      refreshBtn.classList.toggle('hidden', !remote);
-      if (remote) initRemote();
-      else lbBody.innerHTML = '';
-    }
-  </script>
+  // Initial render
+  updateTable();
+});
+</script>
 </body>
 </html>
