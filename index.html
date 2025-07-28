@@ -9,8 +9,8 @@
     h1 { text-align: center; margin-bottom: 1rem; }
     form { display: grid; gap: 0.75rem; margin-bottom: 0.5rem; }
     label { display: flex; flex-direction: column; font-size: 0.9rem; }
-    select, textarea, button, input[type="checkbox"] { padding: 0.5rem; font-size: 1rem; border-radius: 0.25rem; border: 1px solid #ccc; }
-    select:disabled { background: #eee; color: #666; }
+    select, textarea, input, button, input[type="checkbox"] { padding: 0.5rem; font-size: 1rem; border-radius: 0.25rem; border: 1px solid #ccc; }
+    select:disabled, input:disabled { background: #eee; color: #666; }
     textarea { resize: vertical; }
     .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
@@ -21,30 +21,26 @@
 <body>
   <h1>3D Archery Scoring</h1>
   <form id="scoreForm">
-    <label>
-      Target #:
-      <select id="target" required></select>
-    </label>
-    <label>
-      Arrows Used:
+    <label>Target #:<select id="target" required></select></label>
+    <label>Arrows Used:
       <select id="arrows">
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="3">3</option>
         <option value="Miss">Miss</option>
+        <option value="Custom">Custom</option>
       </select>
     </label>
-    <label>
-      Result:
+    <label>Result:
       <select id="result">
         <option value="Kill">Kill</option>
         <option value="Wound">Wound</option>
       </select>
     </label>
-    <label>
-      Notes:
-      <textarea id="notes" rows="2" placeholder="Add any notes..."></textarea>
+    <label id="customLabel" style="display:none;">Custom Score:
+      <input type="number" id="customScore" placeholder="Enter score" min="0" />
     </label>
+    <label>Notes:<textarea id="notes" rows="2" placeholder="Add any notes..."></textarea></label>
     <button type="submit">Add / Update Score</button>
   </form>
   <div class="controls">
@@ -55,28 +51,20 @@
 
   <table id="scoreTable">
     <thead>
-      <tr>
-        <th>Target</th>
-        <th>Arrows</th>
-        <th>Result</th>
-        <th>Score</th>
-        <th>Notes</th>
-      </tr>
+      <tr><th>Target</th><th>Arrows</th><th>Result</th><th>Score</th><th>Notes</th></tr>
     </thead>
     <tbody></tbody>
     <tfoot>
-      <tr>
-        <th colspan="4">Total</th>
-        <th id="runningTotal">0</th>
-      </tr>
+      <tr><th colspan="4">Total</th><th id="runningTotal">0</th></tr>
     </tfoot>
   </table>
 
   <script>
-    const form = document.getElementById('scoreForm');
     const targetSelect = document.getElementById('target');
     const arrowsSelect = document.getElementById('arrows');
     const resultSelect = document.getElementById('result');
+    const customLabel = document.getElementById('customLabel');
+    const customScoreInput = document.getElementById('customScore');
     const notesInput = document.getElementById('notes');
     const showAllCheckbox = document.getElementById('showAll');
     const exportBtn = document.getElementById('exportCsv');
@@ -84,132 +72,85 @@
     const tbody = document.querySelector('#scoreTable tbody');
     const totalEl = document.getElementById('runningTotal');
 
-    // Populate target dropdown 1-25
+    // populate targets
     for (let n = 1; n <= 25; n++) {
-      const opt = document.createElement('option');
-      opt.value = n;
-      opt.textContent = n;
-      targetSelect.appendChild(opt);
+      const opt = document.createElement('option'); opt.value = n; opt.textContent = n; targetSelect.appendChild(opt);
     }
 
-    const points = {
-      Kill: { '1': 20, '2': 14, '3': 8 },
-      Wound: { '1': 17, '2': 11, '3': 5 },
-      Miss: 0
-    };
-
-    let entries = JSON.parse(localStorage.getItem('archeryEntries') || '[]');
+    const points = { Kill:{1:20,2:14,3:8},Wound:{1:17,2:11,3:5},Miss:0 };
+    let entries = JSON.parse(localStorage.getItem('archeryEntries')||'[]');
 
     function updateTable() {
-      tbody.innerHTML = '';
-      let running = 0;
-      const showAll = showAllCheckbox.checked;
-      let displayTargets = [];
-      if (showAll) {
-        for (let t = 1; t <= 25; t++) {
-          const found = entries.find(e => +e.target === t);
-          displayTargets.push({ target: t, arrows: found ? found.arrows : '', result: found ? found.result : '', notes: found ? found.notes : '' });
-        }
-      } else {
-        displayTargets = entries.map(e => ({ ...e }));
+      tbody.innerHTML=''; let running=0;
+      const showAll = showAllCheckbox.checked; let display=[];
+      for(let t=1;t<=25;t++){
+        const e=entries.find(e=>+e.target===t);
+        if(showAll) display.push({target:t,arrows:e?e.arrows:'',result:e?e.result:'',notes:e?e.notes:'',customScore:e?e.customScore:null});
       }
-      displayTargets.sort((a, b) => +a.target - +b.target);
-
-      displayTargets.forEach(e => {
-        const score = e.arrows === 'Miss' || e.arrows === ''
-          ? points['Miss']
-          : points[e.result][e.arrows];
-        running += score;
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${e.target}</td>
-          <td>${e.arrows}</td>
-          <td>${e.result}</td>
-          <td>${score}</td>
-          <td>${e.notes || ''}</td>
-        `;
+      if(!showAll) display = entries.map(e=>({...e}));
+      display.sort((a,b)=>+a.target-+b.target);
+      display.forEach(e=>{
+        let score;
+        if(e.arrows==='Custom') score=Number(e.customScore)||0;
+        else if(e.arrows==='Miss'||!e.arrows) score=0;
+        else score = points[e.result][e.arrows];
+        running+=score;
+        const row=document.createElement('tr');
+        row.innerHTML=`<td>${e.target}</td><td>${e.arrows}</td><td>${e.result}</td><td>${score}</td><td>${e.notes||''}</td>`;
         tbody.appendChild(row);
       });
-      totalEl.textContent = running;
-      localStorage.setItem('archeryEntries', JSON.stringify(entries));
+      totalEl.textContent=running;
+      localStorage.setItem('archeryEntries',JSON.stringify(entries));
     }
 
-    arrowsSelect.addEventListener('change', () => {
-      if (arrowsSelect.value === 'Miss') {
-        resultSelect.disabled = true;
-        resultSelect.value = '';
+    arrowsSelect.addEventListener('change',()=>{
+      if(arrowsSelect.value==='Miss'){
+        resultSelect.disabled=true; resultSelect.value=''; customLabel.style.display='none';
+      } else if(arrowsSelect.value==='Custom'){
+        resultSelect.disabled=true; resultSelect.value=''; customLabel.style.display='block';
       } else {
-        resultSelect.disabled = false;
+        resultSelect.disabled=false; customLabel.style.display='none'; customScoreInput.value='';
       }
     });
 
-    targetSelect.addEventListener('change', () => {
-      const tgt = targetSelect.value;
-      const existing = entries.find(e => e.target === tgt);
-      if (existing) {
-        arrowsSelect.value = existing.arrows;
-        resultSelect.value = existing.result;
-        notesInput.value = existing.notes || '';
-      } else {
-        arrowsSelect.value = '1';
-        resultSelect.value = 'Kill';
-        resultSelect.disabled = false;
-        notesInput.value = '';
-      }
+    targetSelect.addEventListener('change',()=>{
+      const tgt=targetSelect.value; const existing=entries.find(e=>e.target===tgt);
+      if(existing){ arrowsSelect.value=existing.arrows; resultSelect.value=existing.result||'Kill'; notesInput.value=existing.notes||''; customScoreInput.value=existing.customScore||''; }
+      else{ arrowsSelect.value='1'; resultSelect.value='Kill'; notesInput.value=''; customScoreInput.value=''; }
       arrowsSelect.dispatchEvent(new Event('change'));
     });
 
-    form.addEventListener('submit', e => {
+    document.getElementById('scoreForm').addEventListener('submit',e=>{
       e.preventDefault();
-      const tgt = targetSelect.value;
-      const arrows = arrowsSelect.value;
-      const result = resultSelect.value;
-      const notes = notesInput.value.trim();
-      const idx = entries.findIndex(e => e.target === tgt);
-      const entry = { target: tgt, arrows, result, notes };
-      if (idx > -1) {
-        entries[idx] = entry;
-      } else {
-        entries.push(entry);
-      }
+      const tgt=targetSelect.value, arrows=arrowsSelect.value, result=resultSelect.value, notes=notesInput.value.trim();
+      const customScore = arrows==='Custom'? customScoreInput.value.trim(): null;
+      const idx=entries.findIndex(e=>e.target===tgt);
+      const entry={target:tgt,arrows,result,notes,customScore};
+      if(idx>-1) entries[idx]=entry; else entries.push(entry);
       updateTable();
     });
 
-    exportBtn.addEventListener('click', () => {
-      const header = ['Target', 'Arrows', 'Result', 'Score', 'Notes'];
-      const rows = entries.map(e => {
-        const score = e.arrows === 'Miss'
-          ? points['Miss']
-          : points[e.result][e.arrows];
-        return [e.target, e.arrows, e.result, score, e.notes || ''];
+    exportBtn.addEventListener('click',()=>{
+      const header=['Target','Arrows','Result','Score','Notes'];
+      const rows=entries.map(e=>{
+        let score;
+        if(e.arrows==='Custom') score=Number(e.customScore)||0;
+        else if(e.arrows==='Miss') score=0;
+        else score=points[e.result][e.arrows];
+        return [e.target,e.arrows,e.result,score,e.notes||''];
       });
-      const csvContent = [header, ...rows]
-        .map(r => r.map(cell => `"${cell}"`).join(','))
-        .join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const now = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `archery-score-${now}.csv`;
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      link.click();
+      const csv=[header,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
+      const blob=new Blob([csv],{type:'text/csv'});
+      const now=new Date().toISOString().replace(/[:.]/g,'-');
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download=`archery-score-${now}.csv`;a.click();
     });
 
-    resetBtn.addEventListener('click', () => {
-      if (confirm('Reset all entries? This cannot be undone.')) {
-        entries = [];
-        localStorage.removeItem('archeryEntries');
-        form.reset();
-        arrowsSelect.dispatchEvent(new Event('change'));
-        updateTable();
-      }
-    });
+    resetBtn.addEventListener('click',()=>{if(confirm('Reset all entries? This cannot be undone.')){ entries=[]; localStorage.removeItem('archeryEntries'); document.getElementById('scoreForm').reset(); customLabel.style.display='none'; updateTable(); }});
+    showAllCheckbox.addEventListener('change',updateTable);
 
-    showAllCheckbox.addEventListener('change', updateTable);
-
-    // initial load
-    updateTable();
-    targetSelect.dispatchEvent(new Event('change'));
+    // init
+    updateTable(); targetSelect.dispatchEvent(new Event('change'));
   </script>
 </body>
 </html>
