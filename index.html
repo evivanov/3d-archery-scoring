@@ -2,23 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>3D Archery Scoring</title>
   <style>
     body { font-family: sans-serif; max-width: 480px; margin: auto; padding: 1rem; }
     label { display: block; margin-top: 1rem; }
-    select, input[type="text"], textarea, button { width: 100%; padding: 0.5rem; margin-top: 0.2rem; font-size: 1rem; }
-    button { width: auto; }
+    select, input[type="text"], textarea { width: 100%; padding: 0.5rem; margin-top: 0.2rem; font-size: 1rem; }
+    .actions { display: flex; justify-content: space-between; margin-top: 1rem; }
+    button { padding: 0.5rem 1rem; }
     table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
     th, td { border: 1px solid #ccc; padding: 0.4rem; text-align: center; }
+    tr.filled:nth-child(even) { background: #f9f9f9; }
     tr.missed { background: #eee; color: #888; }
+    tfoot th { background: #ddd; }
     .controls { margin-top: 1rem; }
     .hidden { display: none; }
+    #exportCsv { margin-left: auto; }
+    #scoreTable tbody td { cursor: default; }
+    #scoreTable tbody tr:hover td { background: #eef; }
+    #scoreTable tbody tr.selected td { background: #cce; }
   </style>
-  <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
-  <!-- Env and Scores -->
   <script src="env.js"></script>
   <script src="scores.js"></script>
 </head>
@@ -26,190 +31,194 @@
   <h1>3D Archery Scoring</h1>
 
   <div class="controls">
-    <label><input type="checkbox" id="useRemote"> Use Remote Leaderboard</label>
+    <label><input type="checkbox" id="showAll" checked /> Show all targets</label>
+    <label><input type="checkbox" id="useRemote" /> Use Remote</label>
   </div>
 
-  <label id="labelName" class="hidden">
-    Name
-    <input type="text" id="archerName" placeholder="Your Name" />
-  </label>
+  <div class="controls hidden" id="nameContainer">
+    <label>Name:<input type="text" id="archerName" placeholder="Your Name" /></label>
+    <button id="loadUser">Load</button>
+  </div>
 
-  <label>
-    Target
-    <select id="target"></select>
-  </label>
-  <label>
-    Result Type
-    <select id="resultType">
-      <option value="Kill">Kill</option>
-      <option value="Wound">Wound</option>
-    </select>
-  </label>
-  <label>
-    Arrows Hit
-    <select id="arrows"></select>
-  </label>
-  <label>
-    Notes
-    <textarea id="notes" rows="2"></textarea>
-  </label>
+  <div class="controls">
+    <label>Target:<select id="target"></select></label>
+    <label>Result Type:<select id="resultType"><option value="Kill">Kill</option><option value="Wound">Wound</option></select></label>
+  </div>
+  <div class="controls">
+    <label>Arrows:<select id="arrows"></select></label>
+    <label>Notes:<input type="text" id="notes" /></label>
+  </div>
 
-  <button id="exportCsv">Export CSV</button>
-  <button id="addBtn">Add/Update Score</button>
-  <button id="resetBtn">Reset All</button>
+  <div class="actions">
+    <button id="addBtn">Add/Update</button>
+    <button id="exportCsv">Export CSV</button>
+    <button id="resetBtn">Reset</button>
+  </div>
 
   <table id="scoreTable">
     <thead>
-      <tr>
-        <th>Target</th><th>Type</th><th>Arrows</th><th>Score</th><th>Notes</th>
-      </tr>
+      <tr><th>Target</th><th>Type</th><th>Arrows</th><th>Score</th><th>Notes</th></tr>
     </thead>
     <tbody></tbody>
+    <tfoot>
+      <tr><th colspan="3">Total</th><th id="totalScore">0</th><th></th></tr>
+    </tfoot>
   </table>
 
-  <div id="leaderboardContainer" class="hidden controls">
+  <div class="controls hidden" id="leaderboardContainer">
     <h2>Leaderboard</h2>
     <button id="refreshLeaderboard">Refresh</button>
     <table id="leaderboard">
-      <thead>
-        <tr><th>Name</th><th>Total Score</th><th>Date</th></tr>
-      </thead>
+      <thead><tr><th>Name</th><th>Score</th><th>Date</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
 
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      // DOM refs
-      const useRemote = document.getElementById('useRemote');
-      const labelName = document.getElementById('labelName');
-      const archerName = document.getElementById('archerName');
-      const targetSel = document.getElementById('target');
-      const resultTypeSel = document.getElementById('resultType');
-      const arrowsSel = document.getElementById('arrows');
-      const notesInput = document.getElementById('notes');
-      const exportBtn = document.getElementById('exportCsv');
-      const addBtn = document.getElementById('addBtn');
-      const resetBtn = document.getElementById('resetBtn');
-      const scoreTbody = document.querySelector('#scoreTable tbody');
-      const lbContainer = document.getElementById('leaderboardContainer');
-      const refreshLb = document.getElementById('refreshLeaderboard');
-      const lbTbody = document.querySelector('#leaderboard tbody');
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const showAll = document.getElementById('showAll');
+  const useRemote = document.getElementById('useRemote');
+  const nameContainer = document.getElementById('nameContainer');
+  const archerName = document.getElementById('archerName');
+  const loadUser = document.getElementById('loadUser');
+  const targetSel = document.getElementById('target');
+  const resultTypeSel = document.getElementById('resultType');
+  const arrowsSel = document.getElementById('arrows');
+  const notesInput = document.getElementById('notes');
+  const addBtn = document.getElementById('addBtn');
+  const exportBtn = document.getElementById('exportCsv');
+  const resetBtn = document.getElementById('resetBtn');
+  const scoreTbody = document.querySelector('#scoreTable tbody');
+  const totalEl = document.getElementById('totalScore');
+  const leaderboardContainer = document.getElementById('leaderboardContainer');
+  const refreshLb = document.getElementById('refreshLeaderboard');
+  const lbTbody = document.querySelector('#leaderboard tbody');
 
-      // Data store
-      let entries = JSON.parse(localStorage.getItem('entries')||'{}');
+  let entries = JSON.parse(localStorage.getItem('entries')||'{}');
+  let db, initialized = false;
 
-      // Populate selects
-      function initSelects() {
-        targetSel.innerHTML = '<option value="">Select...</option>';
-        for (let i=1; i<=25; i++) targetSel.add(new Option(i,i));
-        arrowsSel.innerHTML = '<option value="">Select...</option>';
-        Object.keys(window.scores.Kill).forEach(k=>{
-          arrowsSel.add(new Option(k==='0'?'Miss':k, k));
-        });
-      }
+  function initSelects() {
+    targetSel.innerHTML = '<option value="">Select...</option>';
+    for (let i=1;i<=25;i++) targetSel.add(new Option(i,i));
+    arrowsSel.innerHTML = '<option value="">Select...</option>';
+    Object.keys(window.scores.Kill).forEach(k => arrowsSel.add(new Option(k==='0'?'Miss':k, k)));
+  }
 
-      // Local storage
-      function saveLocal() {
-        localStorage.setItem('entries', JSON.stringify(entries));
-        localStorage.setItem('archerName', archerName.value);
-        localStorage.setItem('useRemote', useRemote.checked);
-      }
-      function loadLocal() {
-        archerName.value = localStorage.getItem('archerName')||'';
-        const ur = localStorage.getItem('useRemote')==='true';
-        useRemote.checked = ur;
-        toggleRemote(ur);
-      }
+  function saveLocal() {
+    localStorage.setItem('entries', JSON.stringify(entries));
+    localStorage.setItem('archerName', archerName.value);
+    localStorage.setItem('showAll', showAll.checked);
+    localStorage.setItem('useRemote', useRemote.checked);
+  }
 
-      // Update local table
-      function updateTable() {
-        scoreTbody.innerHTML = '';
-        Object.entries(entries).sort((a,b)=>a[0]-b[0]).forEach(([t,e])=>{
-          const sc = window.scores[e.resultType][e.arrows]||0;
-          const tr = document.createElement('tr');
-          if(e.arrows==='0') tr.classList.add('missed');
-          tr.innerHTML = `<td>${t}</td><td>${e.resultType}</td><td>${e.arrows==='0'?'Miss':e.arrows}</td><td>${sc}</td><td>${e.notes||''}</td>`;
-          scoreTbody.appendChild(tr);
-        });
-      }
+  function loadLocal() {
+    archerName.value = localStorage.getItem('archerName')||'';
+    showAll.checked = localStorage.getItem('showAll')!=='false';
+    useRemote.checked = localStorage.getItem('useRemote')==='true';
+    toggleShowAll();
+    toggleRemote();
+  }
 
-      // Firestore init & fetch
-      let db, initialized=false;
-      function initFirestore() {
-        if(!initialized) {
-          firebase.initializeApp(window._env_);
-          db = firebase.firestore();
-          initialized=true;
-        }
-        fetchLeaderboard();
-      }
-      function fetchLeaderboard() {
-        lbTbody.innerHTML='';
-        if(!db) return;
-        db.collection('leaderboard').orderBy('totalScore','desc').limit(10)
-          .get()
-          .then(snap=>{
-            snap.docs.forEach(doc=>{
-              const d = doc.data();
-              lbTbody.insertAdjacentHTML('beforeend',
-                `<tr><td>${d.name}</td><td>${d.totalScore}</td><td>${new Date(d.date).toLocaleString()}</td></tr>`);
-            });
-          });
-      }
-
-      // Toggle remote
-      function toggleRemote(on) {
-        labelName.classList.toggle('hidden', !on);
-        lbContainer.classList.toggle('hidden', !on);
-        saveLocal();
-        if(on) initFirestore();
-      }
-
-      // CSV Export
-      exportBtn.addEventListener('click', () => {
-        const hdr=['Target','Type','Arrows','Score','Notes'];
-        const rows = Object.entries(entries).sort((a,b)=>a[0]-b[0]).map(([t,e])=>{
-          const sc=window.scores[e.resultType][e.arrows]||0;
-          return [t,e.resultType,e.arrows==='0'?'Miss':e.arrows,sc,e.notes||''];
-        });
-        const csv=[hdr,...rows].map(r=>r.join(',')).join('\n');
-        const blob=new Blob([csv],{type:'text/csv'});
-        const a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);
-        a.download=`scores-${new Date().toISOString()}.csv`;
-        a.click();
-      });
-
-      // Events
-      useRemote.addEventListener('change', ()=>toggleRemote(useRemote.checked));
-      addBtn.addEventListener('click', () => {
-        const t=targetSel.value, rt=resultTypeSel.value, a=arrowsSel.value;
-        if(!t||!rt||!a) return;
-        entries[t]={ resultType: rt, arrows: a, notes: notesInput.value.trim() };
-        saveLocal(); updateTable();
-        const nameVal = archerName.value.trim();
-        if(useRemote.checked && initialized && nameVal) {
-          const total = Object.values(entries).reduce((s,e)=>
-            s + (window.scores[e.resultType][e.arrows]||0), 0);
-          db.collection('leaderboard').doc(nameVal)
-            .set({name: nameVal, totalScore: total, date: new Date().toISOString(), entries});
-        }
-      });
-      resetBtn.addEventListener('click', () => {
-        if(confirm('Reset all entries?')) {
-          localStorage.removeItem('entries');
-          entries={};
-          updateTable();
-        }
-      });
-      refreshLb.addEventListener('click', fetchLeaderboard);
-
-      // Init
-      initSelects();
-      loadLocal();
-      updateTable();
+  function updateTable() {
+    scoreTbody.innerHTML = '';
+    let total = 0;
+    const list = showAll.checked
+      ? Array.from({length:25},(_,i)=>entries[i+1]||{resultType:'',arrows:'',notes:''})
+      : Object.keys(entries).map(k=>({target:k,...entries[k]}));
+    list.sort((a,b)=>(+a.target||0)-(+b.target||0)).forEach(e=>{
+      const sc = window.scores[e.resultType]?.[e.arrows]||0;
+      total += sc;
+      const tr = document.createElement('tr');
+      if (e.arrows==='0') tr.classList.add('missed');
+      if (entries[e.target]) tr.classList.add('filled');
+      tr.dataset.target = e.target;
+      tr.innerHTML = `<td>${e.target||''}</td><td>${e.resultType||''}</td><td>${e.arrows==='0'?'Miss':e.arrows||''}</td><td>${sc}</td><td>${e.notes||''}</td>`;
+      scoreTbody.appendChild(tr);
     });
-  </script>
+    totalEl.textContent = total;
+  }
+
+  function initFirestore() {
+    if (!initialized) {
+      firebase.initializeApp(window._env_);
+      db = firebase.firestore(); initialized = true;
+    }
+    fetchLeaderboard();
+  }
+  function fetchLeaderboard() {
+    lbTbody.innerHTML = '';
+    if (!db) return;
+    db.collection('leaderboard').orderBy('totalScore','desc').limit(10).get()
+      .then(snap=>snap.docs.forEach(doc=>{
+        const d = doc.data();
+        const tr = `<tr data-name="${d.name}"><td>${d.name}</td><td>${d.totalScore}</td><td>${new Date(d.date).toLocaleString()}</td></tr>`;
+        lbTbody.insertAdjacentHTML('beforeend', tr);
+      }));
+  }
+
+  function toggleShowAll() { saveLocal(); updateTable(); }
+  function toggleRemote() {
+    const on = useRemote.checked;
+    nameContainer.classList.toggle('hidden', !on);
+    leaderboardContainer.classList.toggle('hidden', !on);
+    saveLocal();
+    if (on) initFirestore();
+  }
+
+  showAll.addEventListener('change', toggleShowAll);
+  useRemote.addEventListener('change', toggleRemote);
+
+  // Load user data on name change
+  document.getElementById('loadUser').addEventListener('click', async ()=>{
+    const name = archerName.value.trim(); if (!name || !initialized) return;
+    const doc = await db.collection('leaderboard').doc(name).get();
+    if (doc.exists) {
+      const data = doc.data();
+      Object.assign(entries, data.entries || {});
+      saveLocal(); updateTable();
+    }
+  });
+
+  addBtn.addEventListener('click', ()=>{
+    const t=targetSel.value, rt=resultTypeSel.value, a=arrowsSel.value;
+    if (!t||!rt||!a) return;
+    entries[t] = { resultType: rt, arrows: a==='Miss'?'0':a, notes: notesInput.value.trim() };
+    saveLocal(); updateTable();
+    if (useRemote.checked && initialized && archerName.value.trim()) {
+      const name=archerName.value.trim();
+      const total = Object.values(entries).reduce((s,e)=>s + (window.scores[e.resultType]?.[e.arrows]||0),0);
+      db.collection('leaderboard').doc(name).set({ name, totalScore: total, date: new Date().toISOString(), entries });
+    }
+  });
+
+  exportBtn.addEventListener('click', ()=>{
+    const hdr=['Target','Type','Arrows','Score','Notes'];
+    const rows = Array.from(scoreTbody.querySelectorAll('tr')).map(tr=>
+      Array.from(tr.children).map(td=>`"${td.textContent}"`)
+    );
+    const csv = [hdr.map(h=>`"${h}"`), ...rows].map(r=>r.join(',')).join('\n');
+    const blob=new Blob([csv],{type:'text/csv'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`scores-${Date.now()}.csv`; a.click();
+  });
+
+  resetBtn.addEventListener('click', ()=>{
+    if (confirm('Reset all entries?')) { localStorage.removeItem('entries'); for(let k in entries) delete entries[k]; updateTable(); }
+  });
+
+  refreshLb.addEventListener('click', ()=>fetchLeaderboard());
+
+  // Show detail on leaderboard click
+  lbTbody.addEventListener('click', e=>{
+    const tr = e.target.closest('tr'); if (!tr) return;
+    const name = tr.dataset.name;
+    archerName.value = name;
+    document.getElementById('loadUser').click();
+  });
+
+  // Init
+  initSelects(); loadLocal(); updateTable();
+});
+</script>
 </body>
 </html>
