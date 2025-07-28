@@ -3,211 +3,153 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3D Archery Scoring with Debug</title>
+  <title>3D Archery Scoring</title>
   <style>
     body { font-family: sans-serif; max-width: 480px; margin: auto; padding: 1rem; }
-    h1, h2 { text-align: center; margin-bottom: 1rem; }
-    form { display: grid; gap: 0.75rem; margin-bottom: 0.5rem; }
-    label { display: flex; flex-direction: column; font-size: 0.9rem; }
-    select, textarea, input, button { padding: 0.5rem; font-size: 1rem; border-radius: 0.25rem; border: 1px solid #ccc; }
-    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
-    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
-    th { background: #f4f4f4; }
+    label { display: block; margin-top: 1rem; }
+    select, input[type="text"], textarea, button { width: 100%; padding: 0.5rem; margin-top: 0.2rem; font-size: 1rem; }
+    button { width: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem; text-align: center; }
+    tr.missed { background: #eee; color: #888; }
+    .controls { margin-top: 1rem; }
     .hidden { display: none; }
   </style>
+  <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
+  <!-- Env and Scores -->
   <script src="env.js"></script>
+  <script src="scores.js"></script>
 </head>
 <body>
   <h1>3D Archery Scoring</h1>
+
   <div class="controls">
-    <label><input type="checkbox" id="useRemote" /> Use remote leaderboard</label>
+    <label><input type="checkbox" id="useRemote"> Use Remote Leaderboard</label>
   </div>
-  <form id="scoreForm">
-    <div id="nameField" class="hidden">
-      <label>Name:<input type="text" id="username" placeholder="Your name" /></label>
-    </div>
-    <label>Target #:<select id="target" required></select></label>
-    <label>Arrows Used:<select id="arrows">
-      <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-      <option value="Miss">Miss</option><option value="Custom">Custom</option>
-    </select></label>
-    <label>Result:<select id="result"><option value="Kill">Kill</option><option value="Wound">Wound</option></select></label>
-    <label id="customLabel" class="hidden">Custom Score:<input type="number" id="customScore" min="0" /></label>
-    <label>Notes:<textarea id="notes" rows="2"></textarea></label>
-    <button type="submit">Add / Update Score</button>
-  </form>
-  <div class="controls">
-    <label><input type="checkbox" id="showAll" checked /> Show all targets</label>
-    <button id="exportCsv" type="button">Export CSV</button>
-    <button id="resetBtn" type="button">Reset All</button>
-  </div>
+
+  <label id="labelName" class="hidden">Name<input type="text" id="archerName" placeholder="Your Name"></label>
+  <label>Target<select id="target"></select></label>
+  <label>Result Type<select id="resultType"><option value="Kill">Kill</option><option value="Wound">Wound</option></select></label>
+  <label>Arrows Hit<select id="arrows"></select></label>
+  <label>Notes<textarea id="notes" rows="2"></textarea></label>
+  <button id="addBtn">Add/Update Score</button>
+  <button id="resetBtn">Reset All</button>
+
   <table id="scoreTable">
-    <thead><tr><th>Target</th><th>Arrows</th><th>Result</th><th>Score</th><th>Notes</th></tr></thead>
+    <thead><tr><th>Target</th><th>Type</th><th>Arrows</th><th>Score</th><th>Notes</th></tr></thead>
     <tbody></tbody>
-    <tfoot><tr><th colspan="3">Total</th><th id="runningTotal">0</th><th></th></tr></tfoot>
   </table>
-  <h2>Leaderboard</h2>
-  <div class="controls"><button id="refreshBtn" class="hidden">Refresh Leaderboard</button></div>
-  <table id="leaderboard">
-    <thead><tr><th>Name</th><th>Total Score</th><th>Date</th></tr></thead><tbody></tbody>
-  </table>
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('Page loaded');
-    console.log('Env config:', window._env_);
-    // DOM references
-    const useRemote = document.getElementById('useRemote');
-    const nameField = document.getElementById('nameField');
-    const usernameInput = document.getElementById('username');
-    const refreshBtn = document.getElementById('refreshBtn');
-    const targetSelect = document.getElementById('target');
-    const arrowsSelect = document.getElementById('arrows');
-    const resultSelect = document.getElementById('result');
-    const customLabel = document.getElementById('customLabel');
-    const customScoreInput = document.getElementById('customScore');
-    const notesInput = document.getElementById('notes');
-    const form = document.getElementById('scoreForm');
-    const showAll = document.getElementById('showAll');
-    const exportCsv = document.getElementById('exportCsv');
-    const resetBtn = document.getElementById('resetBtn');
-    const tbody = document.querySelector('#scoreTable tbody');
-    const totalEl = document.getElementById('runningTotal');
-    const lbBody = document.querySelector('#leaderboard tbody');
 
-    // Populate target dropdown
-    for (let i = 1; i <= 25; i++) {
-      targetSelect.append(new Option(i, i));
-    }
+  <div id="leaderboardContainer" class="hidden controls">
+    <h2>Leaderboard</h2>
+    <button id="refreshLeaderboard">Refresh</button>
+    <table id="leaderboard">
+      <thead><tr><th>Name</th><th>Total Score</th><th>Date</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
 
-    const points = { Kill: {1:20,2:14,3:8}, Wound: {1:17,2:11,3:5}, Miss: 0 };
-    let entries = JSON.parse(localStorage.getItem('archeryEntries') || '[]');
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // DOM refs
+      const useRemote = document.getElementById('useRemote');
+      const labelName = document.getElementById('labelName');
+      const archerName = document.getElementById('archerName');
+      const targetSel = document.getElementById('target');
+      const resultTypeSel = document.getElementById('resultType');
+      const arrowsSel = document.getElementById('arrows');
+      const notesInput = document.getElementById('notes');
+      const addBtn = document.getElementById('addBtn');
+      const resetBtn = document.getElementById('resetBtn');
+      const scoreTbody = document.querySelector('#scoreTable tbody');
+      const lbContainer = document.getElementById('leaderboardContainer');
+      const refreshLb = document.getElementById('refreshLeaderboard');
+      const lbTbody = document.querySelector('#leaderboard tbody');
 
-    // Firestore setup
-    let db = null, firebaseInitialized = false;
-    function initFirestore() {
-      console.log('initFirestore called');
-      if (!firebaseInitialized) {
-        firebase.initializeApp(window._env_);
-        db = firebase.firestore();
-        firebaseInitialized = true;
-        console.log('Firebase initialized');
+      // Data storage
+      const entries = JSON.parse(localStorage.getItem('entries')||'{}');
+
+      // Populate selects
+      function initSelects() {
+        targetSel.innerHTML = '<option value="">Select...</option>';
+        for (let i=1; i<=25; i++) targetSel.add(new Option(i, i));
+        arrowsSel.innerHTML = '<option value="">Select...</option>';
+        Object.keys(window.scores.Kill).forEach(k => {
+          arrowsSel.add(new Option(k==='0'?'Miss':k, k));
+        });
       }
-      fetchLeaderboard();
-    }
 
-    function fetchLeaderboard() {
-      console.log('fetchLeaderboard start');
-      if (!db) { console.warn('Firestore not initialized'); return; }
-      db.collection('leaderboard').orderBy('totalScore', 'desc').limit(10)
-        .get()
-        .then(snapshot => {
-          console.log('Fetched docs count:', snapshot.docs.length);
-          lbBody.innerHTML = '';
-          snapshot.docs.forEach(doc => {
-            const data = doc.data();
-            console.log('Doc:', doc.id, data);
-            const row = `<tr><td>${data.name}</td><td>${data.totalScore}</td><td>${new Date(data.date).toLocaleString()}</td></tr>`;
-            lbBody.insertAdjacentHTML('beforeend', row);
-          });
-        })
-        .catch(err => console.error('Error fetching leaderboard:', err));
-    }
-
-    function toggleRemote(enabled) {
-      console.log('toggleRemote:', enabled);
-      nameField.classList.toggle('hidden', !enabled);
-      usernameInput.required = enabled;
-      refreshBtn.classList.toggle('hidden', !enabled);
-      if (enabled) initFirestore(); else lbBody.innerHTML = '';
-      localStorage.setItem('useRemote', enabled);
-    }
-
-    // Restore remote toggle and username
-    const savedRemote = localStorage.getItem('useRemote') === 'true';
-    const savedName = localStorage.getItem('username');
-    useRemote.checked = savedRemote;
-    if (savedName) usernameInput.value = savedName;
-    toggleRemote(savedRemote);
-
-    // Arrow change logic
-    arrowsSelect.addEventListener('change', () => {
-      const v = arrowsSelect.value;
-      resultSelect.disabled = (v === 'Miss' || v === 'Custom');
-      customLabel.classList.toggle('hidden', v !== 'Custom');
-      if (v !== 'Custom') customScoreInput.value = '';
-    });
-
-    // Table update
-    function updateTable() {
-      tbody.innerHTML = '';
-      let total = 0;
-      const list = showAll.checked
-        ? Array.from({length:25}, (_,i) => entries.find(e=>+e.target===i+1) || {target:i+1, arrows:'', result:'', notes:'', customScore:null})
-        : entries;
-      list.sort((a,b) => a.target - b.target).forEach(e => {
-        const score = e.arrows === 'Custom' ? (+e.customScore || 0)
-          : (e.arrows === 'Miss' ? 0 : (points[e.result]?.[e.arrows] || 0));
-        total += score;
-        const row = `<tr><td>${e.target}</td><td>${e.arrows}</td><td>${e.result}</td><td>${score}</td><td>${e.notes || ''}</td></tr>`;
-        tbody.insertAdjacentHTML('beforeend', row);
-      });
-      totalEl.textContent = total;
-      localStorage.setItem('archeryEntries', JSON.stringify(entries));
-    }
-
-    // Form submit
-    form.addEventListener('submit', async e => {
-      console.log('Form submit'); e.preventDefault();
-      const nameVal = usernameInput.value.trim(); if (nameVal) localStorage.setItem('username', nameVal);
-      const entry = {
-        target: targetSelect.value,
-        arrows: arrowsSelect.value,
-        result: resultSelect.value,
-        notes: notesInput.value.trim(),
-        customScore: arrowsSelect.value === 'Custom' ? customScoreInput.value.trim() : null
-      };
-      const idx = entries.findIndex(x=>x.target===entry.target);
-      if (idx > -1) entries[idx] = entry; else entries.push(entry);
-      console.log('Entries after update:', entries);
-      updateTable();
-
-      if (useRemote.checked && db) {
-        const totalScore = entries.reduce((s,e) => s + (e.arrows==='Custom' ? +e.customScore : (e.arrows==='Miss' ? 0 : (points[e.result]?.[e.arrows] || 0))), 0);
-        const date = new Date().toISOString();
-        console.log('Writing to Firestore:', nameVal, totalScore, date);
-        try {
-          await db.collection('leaderboard').doc(nameVal).set({name: nameVal, totalScore, date});
-          console.log('Write success');
-          fetchLeaderboard();
-        } catch(err) { console.error('Write failed', err); }
+      // Local storage
+      function saveLocal() {
+        localStorage.setItem('entries', JSON.stringify(entries));
+        localStorage.setItem('archerName', archerName.value);
+        localStorage.setItem('useRemote', useRemote.checked);
       }
-    });
+      function loadLocal() {
+        archerName.value = localStorage.getItem('archerName')||'';
+        const ur = localStorage.getItem('useRemote')==='true';
+        useRemote.checked = ur;
+        toggleRemote(ur);
+      }
 
-    // Other controls
-    exportCsv.addEventListener('click', () => {
-      console.log('Export CSV');
-      const hdr=['Target','Arrows','Result','Score','Notes'];
-      const rows = entries.map(e => {
-        const sc = e.arrows==='Custom' ? +e.customScore : (e.arrows==='Miss' ? 0 : (points[e.result]?.[e.arrows] || 0));
-        return [e.target, e.arrows, e.result, sc, e.notes || ''];
+      // Table update
+      function updateTable() {
+        scoreTbody.innerHTML='';
+        Object.entries(entries).sort((a,b)=>a[0]-b[0]).forEach(([t, e])=>{
+          const score = window.scores[e.resultType][e.arrows]||0;
+          const tr = document.createElement('tr');
+          if (e.arrows==='0') tr.classList.add('missed');
+          tr.innerHTML = `<td>${t}</td><td>${e.resultType}</td><td>${e.arrows==='0'?'Miss':e.arrows}</td><td>${score}</td><td>${e.notes||''}</td>`;
+          scoreTbody.appendChild(tr);
+        });
+      }
+
+      // Toggle remote UI
+      let db, initialized=false;
+      function initFirestore() {
+        if (!initialized) {
+          firebase.initializeApp(window._env_);
+          db = firebase.firestore();
+          initialized=true;
+        }
+        fetchLeaderboard();
+      }
+      function fetchLeaderboard() {
+        lbTbody.innerHTML='';
+        if (!db) return;
+        db.collection('leaderboard').orderBy('totalScore','desc').limit(10).get()
+          .then(snap=>snap.docs.forEach(doc=>{
+            const d=doc.data();
+            lbTbody.insertAdjacentHTML('beforeend', `<tr><td>${d.name}</td><td>${d.totalScore}</td><td>${new Date(d.date).toLocaleString()}</td></tr>`);
+          }));
+      }
+      function toggleRemote(on) {
+        labelName.classList.toggle('hidden', !on);
+        lbContainer.classList.toggle('hidden', !on);
+        saveLocal();
+        if (on) initFirestore();
+      }
+
+      // Events
+      useRemote.addEventListener('change', ()=>toggleRemote(useRemote.checked));
+      addBtn.addEventListener('click', ()=>{
+        const t = targetSel.value, rt = resultTypeSel.value, a = arrowsSel.value;
+        if (!t||!rt||!a) return;
+        entries[t] = { resultType: rt, arrows: a, notes: notesInput.value.trim() };
+        saveLocal(); updateTable();
+        if (useRemote.checked && initialized && archerName.value) {
+          const total = Object.values(entries).reduce((sum, e)=>sum + (window.scores[e.resultType][e.arrows]||0), 0);
+          db.collection('leaderboard').doc(archerName.value).set({ name: archerName.value, totalScore: total, date: new Date().toISOString() });
+        }
       });
-      // generate CSV
-      console.log('CSV rows:', rows);
-      const csv = [hdr, ...rows].map(r=>r.join(',')).join('\n');
-      const blob = new Blob([csv], { type:'text/csv' });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `scores-${new Date().toISOString()}.csv`; a.click();
+      resetBtn.addEventListener('click', ()=>{ localStorage.removeItem('entries'); Object.keys(entries).forEach(k=>delete entries[k]); updateTable(); });
+      refreshLb.addEventListener('click', fetchLeaderboard);
+
+      // Init sequence
+      initSelects(); loadLocal(); updateTable();
     });
-
-    resetBtn.addEventListener('click', () => { console.log('Reset'); if (confirm('Reset all entries?')) { entries=[]; localStorage.removeItem('archeryEntries'); form.reset(); updateTable(); }});
-    showAll.addEventListener('change', updateTable);
-    refreshBtn.addEventListener('click', fetchLeaderboard);
-
-    // Initial table render
-    updateTable();
-  });
-</script>
+  </script>
 </body>
 </html>

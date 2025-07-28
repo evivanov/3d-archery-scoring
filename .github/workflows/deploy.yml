@@ -33,6 +33,7 @@ jobs:
           mkdir dist
           cp index.html   dist/
           cp env.js       dist/
+          cp scores.js    dist/
           # cp -r assets/   dist/assets/   # if you have other folders
 
       - name: Deploy to GitHub Pages
