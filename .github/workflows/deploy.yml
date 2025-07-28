@@ -1,7 +1,13 @@
 name: Deploy to GitHub Pages
+
+# when it runs
 on:
   push:
     branches: [ main ]
+
+# grant write access to the repo’s contents
+permissions:
+  contents: write
 
 jobs:
   build-and-deploy:
