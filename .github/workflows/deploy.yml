@@ -23,10 +23,15 @@ jobs:
           FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
 
-      - name: Copy static files
+      - name: Prepare dist
         run: |
-          cp -r ./* dist/
-          rm dist/env.template.js
+          rm -rf dist
+          mkdir dist
+          # copy only the files you need
+          cp index.html dist/
+          cp env.js dist/
+          # if you have other assets:
+          #cp -r assets/ dist/assets/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
