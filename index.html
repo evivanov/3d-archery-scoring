@@ -16,6 +16,7 @@
     table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
     th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
     th { background: #f4f4f4; }
+    .hidden { display: none; }
   </style>
   <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
@@ -30,9 +31,11 @@
   </div>
 
   <form id="scoreForm">
-    <label>Name:
-      <input type="text" id="username" placeholder="Your name" required />
-    </label>
+    <div id="nameField" class="hidden">
+      <label>Name:
+        <input type="text" id="username" placeholder="Your name" />
+      </label>
+    </div>
     <label>Target #:
       <select id="target" required></select>
     </label>
@@ -51,7 +54,7 @@
         <option value="Wound">Wound</option>
       </select>
     </label>
-    <label id="customLabel" style="display:none;">Custom Score:
+    <label id="customLabel" class="hidden">Custom Score:
       <input type="number" id="customScore" placeholder="Enter score" min="0" />
     </label>
     <label>Notes:
@@ -79,23 +82,28 @@
   </table>
 
   <script>
-    // Initialize Firebase if remote is used
     let db = null;
     const useRemote = () => document.getElementById('useRemote').checked;
+    const nameField = document.getElementById('nameField');
+    const usernameInput = document.getElementById('username');
+
     document.getElementById('useRemote').addEventListener('change', () => {
       if (useRemote()) {
+        // show and require name
+        nameField.classList.remove('hidden');
+        usernameInput.required = true;
         firebase.initializeApp(window._env_);
         db = firebase.firestore();
         fetchLeaderboard();
       } else {
+        nameField.classList.add('hidden');
+        usernameInput.required = false;
         db = null;
         document.querySelector('#leaderboard tbody').innerHTML = '';
       }
     });
 
-    // DOM refs
     const form = document.getElementById('scoreForm');
-    const userInput = document.getElementById('username');
     const targetSelect = document.getElementById('target');
     const arrowsSelect = document.getElementById('arrows');
     const resultSelect = document.getElementById('result');
@@ -109,7 +117,6 @@
     const totalEl = document.getElementById('runningTotal');
     const lbBody = document.querySelector('#leaderboard tbody');
 
-    // populate targets
     for (let i = 1; i <= 25; i++) {
       const opt = document.createElement('option'); opt.value = i; opt.textContent = i;
       targetSelect.appendChild(opt);
@@ -139,47 +146,62 @@
     arrowsSelect.addEventListener('change',()=>{
       if(['Miss','Custom'].includes(arrowsSelect.value)){
         resultSelect.disabled=true; resultSelect.value='';
-        customLabel.style.display=arrowsSelect.value==='Custom'?'block':'none';
-      } else { resultSelect.disabled=false; customLabel.style.display='none'; customScoreInput.value=''; }
+        customLabel.classList.toggle('hidden', arrowsSelect.value!=='Custom');
+      } else { resultSelect.disabled=false; customLabel.classList.add('hidden'); customScoreInput.value=''; }
     });
 
     targetSelect.addEventListener('change',()=>{
       const ex=entries.find(e=>e.target===targetSelect.value);
-      if(ex){ arrowsSelect.value=ex.arrows; resultSelect.value=ex.result||'Kill'; notesInput.value=ex.notes||''; customScoreInput.value=ex.customScore||''; }
-      else { arrowsSelect.value='1'; resultSelect.value='Kill'; notesInput.value=''; customScoreInput.value=''; }
+      if(ex){
+        arrowsSelect.value=ex.arrows;
+        resultSelect.value=ex.result||'Kill';
+        notesInput.value=ex.notes||'';
+        customScoreInput.value=ex.customScore||'';
+      } else {
+        arrowsSelect.value='1'; resultSelect.value='Kill'; notesInput.value=''; customScoreInput.value='';
+      }
       arrowsSelect.dispatchEvent(new Event('change'));
     });
 
-    form.addEventListener('submit',async e=>{
+    form.addEventListener('submit', async e=>{
       e.preventDefault();
-      const name=userInput.value.trim(); const tgt=targetSelect.value;
-      const arrows=arrowsSelect.value; const result=resultSelect.value;
-      const notes=notesInput.value.trim(); const customScore=arrows==='Custom'?customScoreInput.value.trim():null;
-      const idx=entries.findIndex(x=>x.target===tgt);
-      const entry={target:tgt,arrows,result,notes,customScore};
+      const name = usernameInput.value.trim();
+      const tgt = targetSelect.value;
+      const arrows = arrowsSelect.value;
+      const result = resultSelect.value;
+      const notes = notesInput.value.trim();
+      const customScore = arrows==='Custom'?customScoreInput.value.trim():null;
+
+      const idx = entries.findIndex(x=>x.target===tgt);
+      const entry = {target:tgt,arrows,result,notes,customScore};
       if(idx>-1) entries[idx]=entry; else entries.push(entry);
       updateTable();
 
       if(useRemote() && db){
-        const totalScore=entries.reduce((s,e)=>s+(e.arrows==='Custom'?Number(e.customScore)||0:(e.arrows!=='Miss'?points[e.result][e.arrows]:0)),0);
-        const date=new Date().toISOString();
-        try{ await db.collection('leaderboard').add({name,totalScore,date}); fetchLeaderboard(); }
-        catch(err){ console.error(err);}      
+        const totalScore = entries.reduce((s,e)=>s + (e.arrows==='Custom'?Number(e.customScore)||0:(e.arrows!=='Miss'?points[e.result][e.arrows]:0)), 0);
+        const date = new Date().toISOString();
+        try {
+          // upsert by user name
+          await db.collection('leaderboard').doc(name).set({name, totalScore, date});
+          fetchLeaderboard();
+        } catch(err){ console.error(err); }
       }
     });
 
     exportBtn.addEventListener('click',()=>{
       const header=['Target','Arrows','Result','Score','Notes'];
       const rows=entries.map(e=>{
-        let score=e.arrows==='Custom'?Number(e.customScore)||0:(e.arrows!=='Miss'?points[e.result][e.arrows]:0);
+        let score=e.arrows==='Custom'?Number(e.customScore)||0:(e.arrows==='Miss'?0:points[e.result][e.arrows]);
         return [e.target,e.arrows,e.result,score,e.notes||''];
       });
-      const csv=[header,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
-      const blob=new Blob([csv],{type:'text/csv'});const now=new Date().toISOString().replace(/[:.]/g,'-');
+      const csv=[header,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('
+');
+      const blob=new Blob([csv],{type:'text/csv'});
+      const now=new Date().toISOString().replace(/[:.]/g,'-');
       const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`scores-${now}.csv`;a.click();
     });
 
-    resetBtn.addEventListener('click',()=>{if(confirm('Reset all entries? This cannot be undone.')){entries=[];localStorage.removeItem('archeryEntries');form.reset();customLabel.style.display='none';updateTable();}});
+    resetBtn.addEventListener('click',()=>{if(confirm('Reset all entries? This cannot be undone.')){entries=[];localStorage.removeItem('archeryEntries');form.reset();customLabel.classList.add('hidden');updateTable();}});
     showAllCheckbox.addEventListener('change',updateTable);
 
     async function fetchLeaderboard(){
@@ -187,7 +209,7 @@
       if(!useRemote()||!db) return;
       const snapshot=await db.collection('leaderboard').orderBy('totalScore','desc').limit(10).get();
       snapshot.docs.forEach(doc=>{
-        const {name,totalScore,date}=doc.data();
+        const {name,totalScore,date} = doc.data();
         const row=document.createElement('tr');
         row.innerHTML=`<td>${name}</td><td>${totalScore}</td><td>${new Date(date).toLocaleString()}</td>`;
         lbBody.appendChild(row);
