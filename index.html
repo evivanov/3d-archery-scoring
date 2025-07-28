@@ -55,7 +55,11 @@
     </thead>
     <tbody></tbody>
     <tfoot>
-      <tr><th colspan="4">Total</th><th id="runningTotal">0</th></tr>
+      <tr>
+        <th colspan="3">Total</th>
+        <th id="runningTotal">0</th>
+        <th></th>
+      </tr>
     </tfoot>
   </table>
 
@@ -72,85 +76,134 @@
     const tbody = document.querySelector('#scoreTable tbody');
     const totalEl = document.getElementById('runningTotal');
 
-    // populate targets
+    // Populate target dropdown 1-25
     for (let n = 1; n <= 25; n++) {
-      const opt = document.createElement('option'); opt.value = n; opt.textContent = n; targetSelect.appendChild(opt);
+      const opt = document.createElement('option');
+      opt.value = n;
+      opt.textContent = n;
+      targetSelect.appendChild(opt);
     }
 
-    const points = { Kill:{1:20,2:14,3:8},Wound:{1:17,2:11,3:5},Miss:0 };
-    let entries = JSON.parse(localStorage.getItem('archeryEntries')||'[]');
+    const points = { Kill: { '1': 20, '2': 14, '3': 8 }, Wound: { '1': 17, '2': 11, '3': 5 }, Miss: 0 };
+    let entries = JSON.parse(localStorage.getItem('archeryEntries') || '[]');
 
     function updateTable() {
-      tbody.innerHTML=''; let running=0;
-      const showAll = showAllCheckbox.checked; let display=[];
-      for(let t=1;t<=25;t++){
-        const e=entries.find(e=>+e.target===t);
-        if(showAll) display.push({target:t,arrows:e?e.arrows:'',result:e?e.result:'',notes:e?e.notes:'',customScore:e?e.customScore:null});
+      tbody.innerHTML = '';
+      let running = 0;
+      const showAll = showAllCheckbox.checked;
+      let display = [];
+      if (showAll) {
+        for (let t = 1; t <= 25; t++) {
+          const e = entries.find(e => +e.target === t);
+          display.push({ target: t, arrows: e ? e.arrows : '', result: e ? e.result : '', notes: e ? e.notes : '', customScore: e ? e.customScore : null });
+        }
+      } else {
+        display = entries.map(e => ({ ...e }));
       }
-      if(!showAll) display = entries.map(e=>({...e}));
-      display.sort((a,b)=>+a.target-+b.target);
-      display.forEach(e=>{
+      display.sort((a, b) => +a.target - +b.target);
+
+      display.forEach(e => {
         let score;
-        if(e.arrows==='Custom') score=Number(e.customScore)||0;
-        else if(e.arrows==='Miss'||!e.arrows) score=0;
+        if (e.arrows === 'Custom') score = Number(e.customScore) || 0;
+        else if (e.arrows === 'Miss' || !e.arrows) score = 0;
         else score = points[e.result][e.arrows];
-        running+=score;
-        const row=document.createElement('tr');
-        row.innerHTML=`<td>${e.target}</td><td>${e.arrows}</td><td>${e.result}</td><td>${score}</td><td>${e.notes||''}</td>`;
+        running += score;
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${e.target}</td>
+          <td>${e.arrows}</td>
+          <td>${e.result}</td>
+          <td>${score}</td>
+          <td>${e.notes || ''}</td>
+        `;
         tbody.appendChild(row);
       });
-      totalEl.textContent=running;
-      localStorage.setItem('archeryEntries',JSON.stringify(entries));
+      totalEl.textContent = running;
+      localStorage.setItem('archeryEntries', JSON.stringify(entries));
     }
 
-    arrowsSelect.addEventListener('change',()=>{
-      if(arrowsSelect.value==='Miss'){
-        resultSelect.disabled=true; resultSelect.value=''; customLabel.style.display='none';
-      } else if(arrowsSelect.value==='Custom'){
-        resultSelect.disabled=true; resultSelect.value=''; customLabel.style.display='block';
+    arrowsSelect.addEventListener('change', () => {
+      if (arrowsSelect.value === 'Miss') {
+        resultSelect.disabled = true;
+        resultSelect.value = '';
+        customLabel.style.display = 'none';
+      } else if (arrowsSelect.value === 'Custom') {
+        resultSelect.disabled = true;
+        resultSelect.value = '';
+        customLabel.style.display = 'block';
       } else {
-        resultSelect.disabled=false; customLabel.style.display='none'; customScoreInput.value='';
+        resultSelect.disabled = false;
+        customLabel.style.display = 'none';
+        customScoreInput.value = '';
       }
     });
 
-    targetSelect.addEventListener('change',()=>{
-      const tgt=targetSelect.value; const existing=entries.find(e=>e.target===tgt);
-      if(existing){ arrowsSelect.value=existing.arrows; resultSelect.value=existing.result||'Kill'; notesInput.value=existing.notes||''; customScoreInput.value=existing.customScore||''; }
-      else{ arrowsSelect.value='1'; resultSelect.value='Kill'; notesInput.value=''; customScoreInput.value=''; }
+    targetSelect.addEventListener('change', () => {
+      const tgt = targetSelect.value;
+      const existing = entries.find(e => e.target === tgt);
+      if (existing) {
+        arrowsSelect.value = existing.arrows;
+        resultSelect.value = existing.result || 'Kill';
+        notesInput.value = existing.notes || '';
+        customScoreInput.value = existing.customScore || '';
+      } else {
+        arrowsSelect.value = '1';
+        resultSelect.value = 'Kill';
+        customScoreInput.value = '';
+        notesInput.value = '';
+      }
       arrowsSelect.dispatchEvent(new Event('change'));
     });
 
-    document.getElementById('scoreForm').addEventListener('submit',e=>{
+    document.getElementById('scoreForm').addEventListener('submit', e => {
       e.preventDefault();
-      const tgt=targetSelect.value, arrows=arrowsSelect.value, result=resultSelect.value, notes=notesInput.value.trim();
-      const customScore = arrows==='Custom'? customScoreInput.value.trim(): null;
-      const idx=entries.findIndex(e=>e.target===tgt);
-      const entry={target:tgt,arrows,result,notes,customScore};
-      if(idx>-1) entries[idx]=entry; else entries.push(entry);
+      const tgt = targetSelect.value;
+      const arrows = arrowsSelect.value;
+      const result = resultSelect.value;
+      const notes = notesInput.value.trim();
+      const customScore = arrows === 'Custom' ? customScoreInput.value.trim() : null;
+      const idx = entries.findIndex(e => e.target === tgt);
+      const entry = { target: tgt, arrows, result, notes, customScore };
+      if (idx > -1) entries[idx] = entry;
+      else entries.push(entry);
       updateTable();
     });
 
-    exportBtn.addEventListener('click',()=>{
-      const header=['Target','Arrows','Result','Score','Notes'];
-      const rows=entries.map(e=>{
+    exportBtn.addEventListener('click', () => {
+      const header = ['Target', 'Arrows', 'Result', 'Score', 'Notes'];
+      const rows = entries.map(e => {
         let score;
-        if(e.arrows==='Custom') score=Number(e.customScore)||0;
-        else if(e.arrows==='Miss') score=0;
-        else score=points[e.result][e.arrows];
-        return [e.target,e.arrows,e.result,score,e.notes||''];
+        if (e.arrows === 'Custom') score = Number(e.customScore) || 0;
+        else if (e.arrows === 'Miss') score = 0;
+        else score = points[e.result][e.arrows];
+        return [e.target, e.arrows, e.result, score, e.notes || ''];
       });
-      const csv=[header,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
-      const blob=new Blob([csv],{type:'text/csv'});
-      const now=new Date().toISOString().replace(/[:.]/g,'-');
-      const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-      a.download=`archery-score-${now}.csv`;a.click();
+      const csv = [header, ...rows]
+        .map(r => r.map(c => `"${c}"`).join(','))
+        .join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const now = new Date().toISOString().replace(/[:.]/g, '-');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `archery-score-${now}.csv`;
+      a.click();
     });
 
-    resetBtn.addEventListener('click',()=>{if(confirm('Reset all entries? This cannot be undone.')){ entries=[]; localStorage.removeItem('archeryEntries'); document.getElementById('scoreForm').reset(); customLabel.style.display='none'; updateTable(); }});
-    showAllCheckbox.addEventListener('change',updateTable);
+    resetBtn.addEventListener('click', () => {
+      if (confirm('Reset all entries? This cannot be undone.')) {
+        entries = [];
+        localStorage.removeItem('archeryEntries');
+        document.getElementById('scoreForm').reset();
+        customLabel.style.display = 'none';
+        updateTable();
+      }
+    });
 
-    // init
-    updateTable(); targetSelect.dispatchEvent(new Event('change'));
+    showAllCheckbox.addEventListener('change', updateTable);
+
+    // initial load
+    updateTable();
+    targetSelect.dispatchEvent(new Event('change'));
   </script>
 </body>
 </html>
