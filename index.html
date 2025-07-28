@@ -9,9 +9,8 @@
     .controls { margin: 1rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
     label { flex: 1; }
     select, input, textarea { width: 100%; padding: 0.5rem; font-size: 1rem; box-sizing: border-box; }
-    button { padding: 0.5rem 1rem; }
     .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin: 1rem 0; }
-    table { width: 100%; border-collapse: collapse; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
     th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: center; }
     tbody tr:nth-child(even) { background: #f9f9f9; }
     .missed { background: #eee; color: #888; }
@@ -19,6 +18,7 @@
     .hidden { display: none; }
     #exportCsv { margin-left: auto; }
     #viewLabel { margin-top: 1rem; font-weight: bold; }
+    #previewTable { margin-top: 1rem; }
   </style>
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
@@ -66,6 +66,12 @@
     <table id="leaderboard">
       <thead><tr><th>Name</th><th>Score</th><th>Date</th></tr></thead><tbody></tbody>
     </table>
+    <div id="previewContainer" class="hidden">
+      <h3 id="previewLabel"></h3>
+      <table id="previewTable">
+        <thead><tr><th>Target</th><th>Type</th><th>Arrows</th><th>Score</th><th>Notes</th></tr></thead><tbody></tbody><tfoot><tr><th colspan="3">Total</th><th id="previewTotal">0</th><th></th></tr></tfoot>
+      </table>
+    </div>
   </div>
 
 <script>
@@ -88,9 +94,13 @@
     const leaderboardContainer = document.getElementById('leaderboardContainer');
     const refreshLb = document.getElementById('refreshLeaderboard');
     const lbTbody = document.querySelector('#leaderboard tbody');
+    const previewContainer = document.getElementById('previewContainer');
+    const previewLabel = document.getElementById('previewLabel');
+    const previewTbody = document.querySelector('#previewTable tbody');
+    const previewTotal = document.getElementById('previewTotal');
 
     let entries = JSON.parse(localStorage.getItem('entries')||'{}');
-    let db, initialized = false;
+    let db, initialized=false;
 
     function initSelects() {
       targetSel.innerHTML='<option value="">Select...</option>';
@@ -117,15 +127,14 @@
     function updateTable() {
       scoreTbody.innerHTML=''; let total=0;
       const list = showAll.checked
-        ? Array.from({length:25},(_,i)=>(entries[i+1]||{target:i+1,arrows:'',resultType:'',notes:''}))
-        : Object.entries(entries).map(([t,e])=>({target:t,...e}));
+        ? Array.from({length:25},(_,i)=>({target:i+1, ...entries[i+1]}))
+        : Object.entries(entries).map(([t,e])=>({target:t, ...e}));
       list.sort((a,b)=>a.target-b.target).forEach(e=>{
-        const sc = window.scores[e.resultType]?.[e.arrows]||0;
+        const sc=window.scores[e.resultType]?.[e.arrows]||0;
         total+=sc;
         const tr=document.createElement('tr');
         if(e.arrows==='0') tr.classList.add('missed');
-        if(entries[e.target]) tr.classList.add('filled');
-        tr.innerHTML=`<td>${e.target}</td><td>${e.resultType}</td><td>${e.arrows==='0'?'Miss':e.arrows}</td><td>${sc}</td><td>${e.notes||''}</td>`;
+        tr.innerHTML=`<td>${e.target||''}</td><td>${e.resultType||''}</td><td>${e.arrows==='0'?'Miss':e.arrows||''}</td><td>${sc}</td><td>${e.notes||''}</td>`;
         scoreTbody.appendChild(tr);
       });
       totalEl.textContent=total;
@@ -149,7 +158,7 @@
       const on=useRemote.checked;
       nameContainer.classList.toggle('hidden',!on);
       leaderboardContainer.classList.toggle('hidden',!on);
-      saveLocal(); if(on)initFirestore(); else lbTbody.innerHTML='';
+      saveLocal(); if(on) initFirestore(); else {lbTbody.innerHTML=''; previewContainer.classList.add('hidden');}
     }
 
     useRemote.addEventListener('change',toggleRemote);
@@ -160,7 +169,7 @@
       const doc=await db.collection('leaderboard').doc(name).get();
       if(doc.exists){
         const data=doc.data(); entries=data.entries||{};
-        viewLabel.textContent=`Viewing: ${name}`;
+        viewLabel.textContent=`Editing: ${name}`;
         saveLocal(); updateTable();
       }
     });
@@ -169,12 +178,13 @@
       const t=targetSel.value, rt=resultSel.value, a=arrowsSel.value;
       if(!t||!rt||!a)return;
       entries[t]={resultType:rt,arrows:a==='Miss'?'0':a,notes:notesInput.value.trim()};
-      viewLabel.textContent = useRemote.checked ? `Viewing: ${archerName.value}` : '';
+      viewLabel.textContent = useRemote.checked ? `Editing: ${archerName.value}` : '';
       saveLocal(); updateTable();
       const name=archerName.value.trim();
       if(useRemote.checked&&initialized&&name){
         const total=Object.values(entries).reduce((s,e)=>s+(window.scores[e.resultType]?.[e.arrows]||0),0);
-        db.collection('leaderboard').doc(name).set({name,totalScore:total,date:new Date().toISOString(),entries});
+        db.collection('leaderboard').doc(name)
+          .set({name,totalScore:total,date:new Date().toISOString(),entries});
       }
     });
 
@@ -182,28 +192,30 @@
       const hdr=['Target','Type','Arrows','Score','Notes'];
       const rows=Array.from(scoreTbody.rows).map(r=>Array.from(r.cells).map(c=>`"${c.textContent}"`));
       const csv=[hdr.map(h=>`"${h}"`),...rows].map(r=>r.join(',')).join('\n');
-      const b=new Blob([csv],{type:'text/csv'});
-      const a=document.createElement('a');a.href=URL.createObjectURL(b);
-      a.download=`scores-${Date.now()}.csv`;a.click();
+      const b=new Blob([csv],{type:'text/csv'}), a=document.createElement('a');
+      a.href=URL.createObjectURL(b); a.download=`scores-${Date.now()}.csv`; a.click();
     });
 
     resetBtn.addEventListener('click',()=>{if(confirm('Reset all entries?')){localStorage.removeItem('entries');entries={}; updateTable();}});
     refreshLb.addEventListener('click',fetchLeaderboard);
 
-    scoreTbody.addEventListener('click',e=>{
-      const tr=e.target.closest('tr'); if(!tr||!tr.dataset.target) return;
-      const t=tr.dataset.target;
-      targetSel.value=t;
-      const eobj=entries[t];
-      resultSel.value=eobj.resultType;
-      arrowsSel.value=eobj.arrows;
-      notesInput.value=eobj.notes;
-    });
-
-    lbTbody.addEventListener('click',e=>{
-      const tr=e.target.closest('tr'); if(!tr||!tr.dataset.name)return;
-      archerName.value=tr.dataset.name;
-      loadUser.click();
+    // Leaderboard click shows preview
+    lbTbody.addEventListener('click',async e=>{
+      const tr=e.target.closest('tr'); if(!tr||!tr.dataset.name) return;
+      const name=tr.dataset.name;
+      const doc=await db.collection('leaderboard').doc(name).get();
+      if(doc.exists){
+        const data=doc.data();
+        previewLabel.textContent = `View: ${name}`;
+        previewContainer.classList.remove('hidden');
+        previewTbody.innerHTML=''; let total=0;
+        Object.entries(data.entries||{}).sort((a,b)=>a[0]-b[0]).forEach(([t,e])=>{
+          const sc=window.scores[e.resultType]?.[e.arrows]||0; total+=sc;
+          previewTbody.insertAdjacentHTML('beforeend',
+            `<tr><td>${t}</td><td>${e.resultType}</td><td>${e.arrows==='0'?'Miss':e.arrows}</td><td>${sc}</td><td>${e.notes||''}</td></tr>`);
+        });
+        previewTotal.textContent = total;
+      }
     });
 
     initSelects(); loadLocal(); updateTable();
