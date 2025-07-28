@@ -2,150 +2,726 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3D Archery Scoring</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>3D Archery Score Tracker</title>
+  <!-- Bulma CSS Framework for modern UI components -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
   <style>
-    body { font-family: sans-serif; max-width: 480px; margin: auto; padding: 1rem; }
-    label { display: block; margin-top: 1rem; }
-    select, input[type="text"], input[type="number"] { width: 100%; padding: 0.5rem; margin-top: 0.2rem; }
-    button { margin-top: 1rem; padding: 0.5rem 1rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { border: 1px solid #ccc; padding: 0.4rem; text-align: center; }
-    tr.missed { background: #eee; color: #888; }
+    /* Global Body Styling */
+    body {
+      font-family: 'Inter', sans-serif; /* Using Inter for a clean, modern font */
+      margin: auto; /* Center the content */
+      padding: 1.5rem; /* Add padding around the entire page */
+      max-width: 600px; /* Max width for better readability on large screens */
+      background-color: #f0f2f5; /* Light background color */
+      color: #333; /* Default text color */
+      line-height: 1.6;
+    }
+
+    /* General Container Styling */
+    .container {
+      background-color: #ffffff; /* White background for the main content area */
+      padding: 2rem;
+      border-radius: 12px; /* Rounded corners for the main container */
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); /* Soft shadow for depth */
+    }
+
+    /* Title Styling */
+    .title {
+      color: #2c3e50; /* Darker title color */
+      text-align: center;
+      margin-bottom: 1.5rem;
+      font-weight: 700;
+      font-size: 2.2rem;
+    }
+
+    /* Control Section Styling */
+    .controls {
+      margin: 1.5rem 0;
+      display: flex;
+      flex-wrap: wrap; /* Allow items to wrap on smaller screens */
+      gap: 0.75rem; /* Space between control elements */
+      align-items: center;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #eee; /* Separator line */
+    }
+
+    /* Actions Section Styling (for buttons like export) */
+    .actions {
+      display: flex;
+      justify-content: flex-end; /* Align action buttons to the right */
+      gap: 0.75rem;
+      margin: 1rem 0;
+    }
+
+    /* Table Styling */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.5rem;
+      border-radius: 8px; /* Rounded corners for tables */
+      overflow: hidden; /* Ensures rounded corners apply to content */
+    }
+
+    th, td {
+      border: 1px solid #e0e0e0; /* Lighter borders for cells */
+      padding: 0.75rem;
+      text-align: center;
+      font-size: 0.95rem;
+    }
+
+    thead th {
+      background-color: #f5f7fa; /* Light header background */
+      color: #555;
+      font-weight: 600;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #fdfdfd; /* Very light alternating row color */
+    }
+
+    /* Styling for missed entries */
+    .missed {
+      background: #f8f8f8; /* Slightly greyed out background */
+      color: #888;
+      font-style: italic;
+    }
+
     /* Grey out the score cell when missed */
-    tr.missed td:nth-child(3) { color: #aaa; }
-    .controls { margin-top: 1rem; }
-    .hidden { display: none; }
+    .missed td:nth-child(4) { /* Assuming Score is the 4th column */
+      color: #aaa;
+    }
+
+    /* Footer row for total score */
+    tfoot th {
+      background: #e9ecef; /* Darker background for footer */
+      color: #333;
+      font-weight: 700;
+    }
+
+    /* Utility class to hide elements */
+    .hidden {
+      display: none !important; /* Use !important to override Bulma's display properties */
+    }
+
+    /* Animation for preview row */
+    .slide-enter {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s ease-out;
+    }
+    .slide-enter-active {
+      max-height: 1000px; /* Sufficiently large value for animation */
+    }
+
+    /* Styling for the preview row within the leaderboard */
+    .preview-row td {
+      padding: 0 !important; /* Remove padding for nested table */
+      border: none; /* Remove border for the outer cell */
+    }
+
+    /* Styling for the nested table within the preview row */
+    .readonly-table {
+      margin: 0; /* Remove margin */
+      box-shadow: none; /* Remove shadow */
+      border-radius: 0; /* Remove border radius */
+      width: 100%; /* Ensure it takes full width */
+    }
+    .readonly-table td, .readonly-table th {
+      font-size: 0.85rem; /* Smaller font for nested table */
+      padding: 0.4rem; /* Smaller padding */
+      border: 1px solid #f0f0f0; /* Lighter border */
+    }
+    .readonly-table thead th {
+      background-color: #eef1f4; /* Slightly different header for nested table */
+    }
+    .readonly-table tfoot th {
+      background-color: #e0e4e8; /* Slightly different footer for nested table */
+    }
+
+    /* Custom Modal Styling */
+    .modal {
+        display: none; /* Hidden by default */
+        position: fixed; /* Stay in place */
+        z-index: 1000; /* Sit on top */
+        left: 0;
+        top: 0;
+        width: 100%; /* Full width */
+        height: 100%; /* Full height */
+        overflow: auto; /* Enable scroll if needed */
+        background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+        justify-content: center;
+        align-items: center;
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%; /* Could be more responsive */
+        max-width: 400px;
+        border-radius: 10px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        text-align: center;
+    }
+
+    .modal-buttons {
+        margin-top: 20px;
+        display: flex;
+        justify-content: space-around;
+        gap: 10px;
+    }
+
+    .modal-buttons .button {
+        flex-grow: 1; /* Make buttons take equal width */
+    }
   </style>
-  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
+  <!-- Firebase SDKs - using compat versions as in your original code -->
+  <!-- Note: These are external. If you want a truly single file, their content would need to be inlined. -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <!-- Your custom environment and scores data -->
+  <!-- Note: These are external. If you want a truly single file, their content would need to be inlined. -->
   <script src="env.js"></script>
   <script src="scores.js"></script>
 </head>
-<body>
-  <h1>3D Archery Scoring</h1>
+<body class="p-4">
+  <div class="container">
+    <h1 class="title is-2">3D Archery Score Tracker</h1>
 
-  <div class="controls">
-    <label><input type="checkbox" id="useRemote" /> Use Remote</label>
-  </div>
+    <!-- Controls Section: Remote Toggle, Name Input, Export CSV -->
+    <div class="controls">
+      <label class="checkbox">
+        <input type="checkbox" id="remoteToggle"> Use Remote Leaderboard
+      </label>
+      <div id="nameContainer" class="field has-addons is-flex-grow-1 ml-4 hidden">
+        <div class="control is-expanded">
+          <input class="input is-rounded" type="text" id="archerName" placeholder="Your Name">
+        </div>
+        <div class="control">
+          <button class="button is-link is-rounded" id="loadDataBtn">Load Data</button>
+        </div>
+      </div>
+      <button class="button is-info is-rounded ml-auto" id="exportCSV">Export CSV</button>
+    </div>
 
-  <label id="labelName" class="hidden">Name<input type="text" id="archerName" placeholder="Your name" /></label>
+    <!-- Score Entry Form -->
+    <form id="scoreForm">
+      <div class="columns is-multiline">
+        <!-- Target Select -->
+        <div class="column is-one-third">
+          <label class="label">Target</label>
+          <div class="select is-fullwidth is-rounded">
+            <select id="targetSelect"></select>
+          </div>
+        </div>
+        <!-- Arrows Select -->
+        <div class="column is-one-third">
+          <label class="label">Arrows</label>
+          <div class="select is-fullwidth is-rounded">
+            <select id="arrowsSelect"></select>
+          </div>
+        </div>
+        <!-- Result Select (Kill/Wound) -->
+        <div class="column is-one-third">
+          <label class="label">Result</label>
+          <div class="select is-fullwidth is-rounded">
+            <select id="resultSelect"></select>
+          </div>
+        </div>
+        <!-- Notes Input -->
+        <div class="column is-two-thirds">
+          <label class="label">Notes</label>
+          <input class="input is-rounded" type="text" id="notesInput" placeholder="Add notes (optional)">
+        </div>
+        <!-- Save Target Button -->
+        <div class="column is-one-third">
+          <button class="button is-success is-rounded mt-5 is-fullwidth" type="button" id="addBtn">Save Target</button>
+        </div>
+        <!-- Reset Button -->
+        <div class="column is-one-third">
+          <button class="button is-warning is-rounded mt-5 is-fullwidth" type="button" id="resetBtn">Reset All</button>
+        </div>
+        <!-- Show All Targets Toggle -->
+        <div class="column is-full">
+          <label class="checkbox mt-4">
+            <input type="checkbox" id="showAllToggle" checked> Show all 25 targets (even un-scored)
+          </label>
+        </div>
+      </div>
+    </form>
 
-  <label>Target<select id="target"></select></label>
-  <label>Arrows Hit<select id="arrows"></select></label>
-  <label>Notes<input type="text" id="notes" /></label>
-  <button id="addBtn">Add / Update</button>
-  <button id="resetBtn">Reset</button>
+    <!-- Local Score Table -->
+    <table class="table is-striped is-hoverable is-fullwidth score-table">
+      <thead>
+        <tr><th>Target</th><th>Arrows</th><th>Result</th><th>Score</th><th>Notes</th></tr>
+      </thead>
+      <tbody id="scoreBody">
+        <!-- Score entries will be dynamically inserted here -->
+      </tbody>
+      <tfoot>
+        <tr><th colspan="3">Total Score</th><th id="totalScore">0</th><th></th></tr>
+      </tfoot>
+    </table>
 
-  <table id="scoreTable">
-    <thead><tr><th>Target</th><th>Arrows</th><th>Score</th><th>Notes</th></tr></thead>
-    <tbody></tbody>
-  </table>
-
-  <div id="leaderboardContainer" class="hidden">
-    <h2>Leaderboard</h2>
-    <button id="refreshLeaderboard">Refresh</button>
-    <table id="leaderboard">
-      <thead><tr><th>Name</th><th>Score</th><th>Date</th></tr></thead>
-      <tbody></tbody>
+    <!-- Leaderboard Section -->
+    <h2 class="title is-4 mt-6">Global Leaderboard</h2>
+    <div class="controls">
+      <button class="button is-primary is-rounded" id="refreshLeaderboard">Refresh Leaderboard</button>
+    </div>
+    <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
+      <thead><tr><th>Name</th><th>Date</th><th>Total Score</th></tr></thead>
+      <tbody>
+        <!-- Leaderboard entries will be dynamically inserted here -->
+      </tbody>
     </table>
   </div>
 
-  <script>
-    // Load scores mapping from scores.js
-    const mapping = window.scores;
-    const entries = JSON.parse(localStorage.getItem('entries')||'{}');
+  <!-- Custom Confirmation Modal -->
+  <div id="confirmationModal" class="modal">
+    <div class="modal-content">
+      <p>Are you sure you want to reset all local scores?</p>
+      <div class="modal-buttons">
+        <button class="button is-danger" id="confirmResetYes">Yes, Reset</button>
+        <button class="button is-light" id="confirmResetNo">No, Cancel</button>
+      </div>
+    </div>
+  </div>
 
-    // DOM refs
-    const useRemote = document.getElementById('useRemote');
-    const labelName = document.getElementById('labelName');
+  <script>
+  // Ensure the DOM is fully loaded before running JavaScript
+  document.addEventListener('DOMContentLoaded', () => {
+    // --- DOM Element References ---
+    const remoteToggle = document.getElementById('remoteToggle');
+    const nameContainer = document.getElementById('nameContainer');
     const archerName = document.getElementById('archerName');
-    const targetSel = document.getElementById('target');
-    const arrowsSel = document.getElementById('arrows');
-    const notesInput = document.getElementById('notes');
+    const loadDataBtn = document.getElementById('loadDataBtn');
+    const exportCSV = document.getElementById('exportCSV');
+    const targetSelect = document.getElementById('targetSelect');
+    const arrowsSelect = document.getElementById('arrowsSelect');
+    const resultSelect = document.getElementById('resultSelect');
+    const notesInput = document.getElementById('notesInput');
     const addBtn = document.getElementById('addBtn');
     const resetBtn = document.getElementById('resetBtn');
-    const scoreTbody = document.querySelector('#scoreTable tbody');
-    const lbContainer = document.getElementById('leaderboardContainer');
+    const showAllToggle = document.getElementById('showAllToggle');
+    const scoreBody = document.getElementById('scoreBody');
+    const totalScoreEl = document.getElementById('totalScore');
     const refreshLb = document.getElementById('refreshLeaderboard');
-    const lbTbody = document.querySelector('#leaderboard tbody');
+    const lbBody = document.querySelector('#leaderboardTable tbody');
 
-    // Populate selects
+    // Modal elements
+    const confirmationModal = document.getElementById('confirmationModal');
+    const confirmResetYes = document.getElementById('confirmResetYes');
+    const confirmResetNo = document.getElementById('confirmResetNo');
+
+    // --- Application State Variables ---
+    // Load entries from local storage or initialize as an empty object
+    let entries = JSON.parse(localStorage.getItem('entries') || '{}');
+    let db; // Firestore database instance
+    let firestoreInitialized = false; // Flag to track Firestore initialization
+
+    // --- Initialization Functions ---
+
+    /**
+     * Populates the 'Target', 'Arrows', and 'Result' select dropdowns.
+     */
     function initSelects() {
-      targetSel.innerHTML = '<option value="">Select...</option>';
-      for (let i=1;i<=25;i++) targetSel.add(new Option(i, i));
-      arrowsSel.innerHTML = '<option value="">Select...</option>';
-      Object.keys(mapping).forEach(k => arrowsSel.add(new Option(k==='0'?'Miss':k, k)));
+      // Populate Target dropdown (1 to 25)
+      targetSelect.innerHTML = '<option value="">Select Target...</option>';
+      for (let i = 1; i <= 25; i++) {
+        targetSelect.add(new Option(i, i));
+      }
+
+      // Populate Arrows dropdown using keys from 'Kill' scores (assuming 'Kill' is representative)
+      arrowsSelect.innerHTML = '<option value="">Select Arrows...</option>';
+      // Ensure window.scores and window.scores.Kill exist before accessing
+      if (window.scores && window.scores.Kill) {
+        Object.keys(window.scores.Kill).forEach(k => {
+          arrowsSelect.add(new Option(k === '0' ? 'Miss' : k, k));
+        });
+      } else {
+        console.error("window.scores or window.scores.Kill is not defined. Check scores.js.");
+        // Fallback options if scores.js isn't loaded correctly
+        arrowsSelect.add(new Option('10', '10'));
+        arrowsSelect.add(new Option('8', '8'));
+        arrowsSelect.add(new Option('5', '5'));
+        arrowsSelect.add(new Option('Miss', '0'));
+      }
+
+
+      // Populate Result dropdown (Kill, Wound)
+      resultSelect.innerHTML = '<option value="">Select Result...</option>';
+      ['Kill', 'Wound'].forEach(r => resultSelect.add(new Option(r, r)));
     }
 
+    /**
+     * Saves the current state of 'entries', 'archerName', 'showAll', and 'useRemote' to local storage.
+     */
     function saveLocal() {
       localStorage.setItem('entries', JSON.stringify(entries));
       localStorage.setItem('archerName', archerName.value);
-      localStorage.setItem('useRemote', useRemote.checked);
+      localStorage.setItem('showAll', showAllToggle.checked);
+      localStorage.setItem('useRemote', remoteToggle.checked);
     }
 
+    /**
+     * Loads saved preferences from local storage and applies them to the UI.
+     */
     function loadLocal() {
-      archerName.value = localStorage.getItem('archerName')||'';
-      const ur = localStorage.getItem('useRemote')==='true';
-      useRemote.checked = ur;
-      toggleRemote(ur);
+      archerName.value = localStorage.getItem('archerName') || '';
+      // Convert string 'false' back to boolean false, otherwise true
+      showAllToggle.checked = localStorage.getItem('showAll') !== 'false';
+      remoteToggle.checked = localStorage.getItem('useRemote') === 'true';
+      toggleRemote(); // Apply the remote toggle state based on loaded value
+      updateTable(); // Update the score table based on loaded entries
     }
 
+    /**
+     * Updates the local score table based on the 'entries' object and 'showAllToggle' state.
+     */
     function updateTable() {
-      scoreTbody.innerHTML='';
-      Object.entries(entries).sort((a,b)=>a[0]-b[0]).forEach(([t,e])=>{
-        const sc = e.arrows==='0'?0:(mapping[e.arrows]||0);
-        const tr = document.createElement('tr');
-        if (e.arrows==='0') tr.classList.add('missed');
-        tr.innerHTML=`<td>${t}</td><td>${e.arrows==='0'?'Miss':e.arrows}</td><td>${sc}</td><td>${e.notes||''}</td>`;
-        scoreTbody.appendChild(tr);
+      scoreBody.innerHTML = ''; // Clear existing table rows
+      let total = 0;
+
+      // Determine which entries to display based on 'showAllToggle'
+      const listToDisplay = showAllToggle.checked
+        ? Array.from({ length: 25 }, (_, i) => ({ target: i + 1, ...entries[i + 1] })) // All 25 targets
+        : Object.entries(entries).map(([t, e]) => ({ target: parseInt(t), ...e })); // Only scored targets
+
+      // Sort entries numerically by target ID
+      listToDisplay.sort((a, b) => a.target - b.target).forEach(entry => {
+        // Calculate score, defaulting to 0 if resultType or arrows are undefined
+        const score = window.scores?.[entry.resultType]?.[entry.arrows] || 0;
+        total += score; // Accumulate total score
+
+        const tr = document.createElement('tr'); // Create a new table row
+        if (entry.arrows === '0') {
+          tr.classList.add('missed'); // Add 'missed' class if arrows hit is '0'
+        }
+
+        // Populate the row with data. Use empty string if data is undefined for display.
+        tr.innerHTML = `
+          <td>${entry.target || ''}</td>
+          <td>${entry.arrows === '0' ? 'Miss' : (entry.arrows || '')}</td>
+          <td>${entry.resultType || ''}</td>
+          <td>${score}</td>
+          <td>${entry.notes || ''}</td>
+        `;
+        scoreBody.appendChild(tr); // Append the row to the table body
       });
+
+      totalScoreEl.textContent = total; // Update the displayed total score
     }
 
-    function toggleRemote(on) {
-      labelName.classList.toggle('hidden',!on);
-      lbContainer.classList.toggle('hidden',!on);
-      saveLocal();
-      if (on) initFirestore();
-    }
-
-    // Firebase
-    let db, inited=false;
+    /**
+     * Initializes Firebase Firestore if it hasn't been initialized yet and
+     * the Firebase environment configuration (window._env_) is available.
+     */
     function initFirestore() {
-      if (!inited && window._env_) {
-        firebase.initializeApp(window._env_);
-        db = firebase.firestore();
-        inited=true;
+      if (!firestoreInitialized) {
+        if (window._env_) {
+          try {
+            firebase.initializeApp(window._env_); // Initialize Firebase app
+            db = firebase.firestore(); // Get Firestore instance
+            firestoreInitialized = true; // Set flag to true
+            console.log("Firebase Firestore initialized successfully.");
+          } catch (error) {
+            console.error("Error initializing Firebase Firestore:", error);
+            // In a real app, you might show a more user-friendly error message here
+          }
+        } else {
+          console.warn("Firebase environment configuration (window._env_) not found. Firestore cannot be initialized.");
+        }
       }
-      fetchLb();
-    }
-    function fetchLb() {
-      if (!db) return;
-      lbTbody.innerHTML='';
-      db.collection('leaderboard').orderBy('totalScore','desc').limit(10).get()
-        .then(snap=>snap.docs.forEach(d=>{
-          const rd=d.data();
-          lbTbody.insertAdjacentHTML('beforeend',`<tr><td>${rd.name}</td><td>${rd.totalScore}</td><td>${new Date(rd.date).toLocaleString()}</td></tr>`);
-        }));
+      // Always attempt to fetch leaderboard after init (or if already inited)
+      if (firestoreInitialized) {
+        fetchLeaderboard();
+      }
     }
 
-    // Events
-    useRemote.addEventListener('change',()=>toggleRemote(useRemote.checked));
-    addBtn.addEventListener('click',()=>{
-      const t=targetSel.value, a=arrowsSel.value;
-      if(!t||!a) return;
-      entries[t]={arrows:a,notes:notesInput.value};
-      saveLocal(); updateTable();
-      if(useRemote.checked&&inited){
-        const total=Object.values(entries).reduce((s,e)=>s+ +mapping[e.arrows],0);
-        db.collection('leaderboard').doc(archerName.value).set({name:archerName.value,totalScore:total,date:new Date().toISOString()});
+    /**
+     * Fetches and displays the leaderboard data from Firestore.
+     */
+    async function fetchLeaderboard() {
+      lbBody.innerHTML = '<tr><td colspan="3">Loading leaderboard...</td></tr>'; // Loading indicator
+      if (!db) {
+        lbBody.innerHTML = '<tr><td colspan="3">Firestore not initialized.</td></tr>';
+        console.warn("Firestore not initialized. Cannot fetch leaderboard.");
+        return;
+      }
+
+      try {
+        // Query the 'leaderboard' collection, order by totalScore descending, limit to 10
+        const snapshot = await db.collection('leaderboard')
+          .orderBy('totalScore', 'desc')
+          .limit(10)
+          .get();
+
+        lbBody.innerHTML = ''; // Clear existing leaderboard entries
+
+        if (snapshot.empty) {
+          lbBody.insertAdjacentHTML('beforeend', `<tr><td colspan="3">No leaderboard data yet.</td></tr>`);
+          return;
+        }
+
+        snapshot.docs.forEach(doc => {
+          const data = doc.data();
+          const tr = document.createElement('tr');
+          tr.dataset.name = data.name; // Store name in dataset for click event
+          tr.innerHTML = `
+            <td>${data.name}</td>
+            <td>${new Date(data.date).toLocaleString()}</td>
+            <td>${data.totalScore}</td>
+          `;
+          lbBody.appendChild(tr);
+        });
+      } catch (error) {
+        console.error("Error fetching leaderboard:", error);
+        lbBody.innerHTML = `<tr><td colspan="3">Error loading leaderboard.</td></tr>`;
+      }
+    }
+
+    /**
+     * Toggles the visibility of remote-related UI elements (name input, leaderboard).
+     * This function is called when the remoteToggle checkbox changes.
+     */
+    function toggleRemote() {
+      const on = remoteToggle.checked;
+      nameContainer.classList.toggle('hidden', !on); // Show/hide name input container
+      document.getElementById('leaderboardTable').classList.toggle('hidden', !on); // Show/hide leaderboard table
+      saveLocal(); // Save the current state of the 'useRemote' checkbox
+
+      if (on) {
+        initFirestore(); // Initialize Firestore if remote is enabled
+      }
+    }
+
+    // --- Custom Confirmation Modal Logic ---
+    /**
+     * Shows the custom confirmation modal.
+     */
+    function showConfirmationModal() {
+        confirmationModal.style.display = 'flex'; // Use flex to center content
+    }
+
+    /**
+     * Hides the custom confirmation modal.
+     */
+    function hideConfirmationModal() {
+        confirmationModal.style.display = 'none';
+    }
+
+    // --- Event Listeners ---
+
+    // Listen for changes on the 'remoteToggle' checkbox
+    remoteToggle.addEventListener('change', toggleRemote);
+
+    // Listen for changes on the 'showAllToggle' checkbox
+    showAllToggle.addEventListener('change', () => {
+      saveLocal(); // Save the state
+      updateTable(); // Refresh table display
+    });
+
+    // Listen for clicks on the 'Load Data' button (for remote data)
+    loadDataBtn.addEventListener('click', async () => {
+      const name = archerName.value.trim();
+      if (!name) {
+        alert('Please enter your name to load data.'); // Basic validation
+        return;
+      }
+      if (!firestoreInitialized) {
+        alert('Firebase is not initialized. Cannot load remote data.');
+        return;
+      }
+
+      try {
+        const doc = await db.collection('leaderboard').doc(name).get();
+        if (doc.exists) {
+          entries = doc.data().entries || {}; // Load specific archer's entries
+          saveLocal(); // Save loaded entries to local storage
+          updateTable(); // Refresh local score table
+          alert(`Data for ${name} loaded successfully!`);
+        } else {
+          alert(`No data found for ${name}.`);
+        }
+      } catch (error) {
+        console.error("Error loading remote data:", error);
+        alert("Failed to load remote data. Check console for details.");
       }
     });
-    resetBtn.addEventListener('click',()=>{localStorage.removeItem('entries'); for(let k in entries) delete entries[k]; updateTable();});
-    refreshLb.addEventListener('click',fetchLb);
 
-    // Init
-    initSelects(); loadLocal(); updateTable();
+    // Listen for clicks on the 'Save Target' button
+    addBtn.addEventListener('click', () => {
+      const target = targetSelect.value;
+      const arrows = arrowsSelect.value === 'Miss' ? '0' : arrowsSelect.value; // Convert 'Miss' to '0'
+      const resultType = resultSelect.value;
+      const notes = notesInput.value.trim();
+
+      // Basic validation for required fields
+      if (!target || !arrows || !resultType) {
+        alert('Please select Target, Arrows, and Result.');
+        return;
+      }
+
+      // Update the local 'entries' object for the selected target
+      entries[target] = { arrows: arrows, resultType: resultType, notes: notes };
+      saveLocal(); // Save updated entries to local storage
+      updateTable(); // Refresh the local score table
+
+      // If remote is enabled and Firestore is initialized, update the remote leaderboard
+      if (remoteToggle.checked && firestoreInitialized) {
+        const name = archerName.value.trim();
+        if (!name) {
+          alert('Please enter your name to save to remote leaderboard.');
+          return;
+        }
+
+        // Calculate the total score from current local entries
+        const totalScore = Object.values(entries).reduce((sum, entry) => {
+          // Ensure window.scores, entry.resultType, and entry.arrows exist before accessing
+          return sum + (window.scores?.[entry.resultType]?.[entry.arrows] || 0);
+        }, 0);
+
+        // Set the document in the 'leaderboard' collection.
+        // Using set() with a specific doc ID (archer name) will create or overwrite it.
+        db.collection('leaderboard').doc(name).set({
+          name: name,
+          totalScore: totalScore,
+          date: new Date().toISOString(), // Store date in ISO format for consistent sorting
+          entries: entries // Store all entries for detailed view
+        }).then(() => {
+          console.log("Remote score updated successfully!");
+          fetchLeaderboard(); // Refresh leaderboard after update
+        }).catch(error => {
+          console.error("Error updating remote score:", error);
+          alert("Failed to update remote score. Check console for details.");
+        });
+      }
+
+      // Clear input fields after successful addition/update
+      targetSelect.value = '';
+      arrowsSelect.value = '';
+      resultSelect.value = '';
+      notesInput.value = '';
+    });
+
+    // Listen for clicks on the 'Export CSV' button
+    exportCSV.addEventListener('click', () => {
+      const header = ['Target', 'Arrows', 'Result', 'Score', 'Notes'];
+      // Map table rows to CSV format, ensuring content is quoted for safety
+      const rows = Array.from(scoreBody.rows).map(row =>
+        Array.from(row.cells).map(cell => `"${cell.textContent.replace(/"/g, '""')}"`) // Handle quotes in content
+      );
+      const csv = [header.map(h => `"${h}"`).join(','), ...rows.map(r => r.join(','))].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `3d-archery-scores-${Date.now()}.csv`; // Unique filename
+      document.body.appendChild(a); // Append to body to make it clickable
+      a.click(); // Programmatically click the link to trigger download
+      document.body.removeChild(a); // Clean up the temporary link
+      URL.revokeObjectURL(url); // Release the object URL
+    });
+
+    // Listen for clicks on the 'Reset All' button
+    resetBtn.addEventListener('click', () => {
+      showConfirmationModal(); // Show the custom confirmation modal
+    });
+
+    // Handle confirmation modal buttons
+    confirmResetYes.addEventListener('click', () => {
+      hideConfirmationModal();
+      localStorage.removeItem('entries'); // Clear local storage entries
+      entries = {}; // Clear the 'entries' object in memory
+      updateTable(); // Refresh the local score table (which will now be empty)
+
+      // Optionally, if remote is used and an archer name is provided, delete their remote entry
+      if (remoteToggle.checked && firestoreInitialized && archerName.value.trim()) {
+        const name = archerName.value.trim();
+        db.collection('leaderboard').doc(name).delete().then(() => {
+          console.log(`Remote score for ${name} deleted.`);
+          fetchLeaderboard(); // Refresh leaderboard after deletion
+        }).catch(error => {
+          console.error(`Error deleting remote score for ${name}:`, error);
+          alert("Failed to delete remote score. Check console for details.");
+        });
+      }
+    });
+
+    confirmResetNo.addEventListener('click', () => {
+      hideConfirmationModal(); // Just hide the modal if cancelled
+    });
+
+    // Listen for clicks on the 'Refresh Leaderboard' button
+    refreshLb.addEventListener('click', fetchLeaderboard);
+
+    // Listen for clicks on leaderboard table rows to show detailed scores
+    document.querySelector('#leaderboardTable tbody')
+      .addEventListener('click', async e => {
+      const tr = e.target.closest('tr');
+      // Ensure a valid row with a name dataset was clicked
+      if (!tr || !tr.dataset.name) return;
+
+      const name = tr.dataset.name;
+      if (!db) {
+        alert("Firestore is not initialized. Cannot fetch detailed scores.");
+        return;
+      }
+
+      try {
+        const doc = await db.collection('leaderboard').doc(name).get();
+        if (!doc.exists) {
+          alert(`No detailed data found for ${name}.`);
+          return;
+        }
+
+        // Remove any existing preview row to ensure only one is open at a time
+        const existingPreview = document.querySelector('.preview-row');
+        if (existingPreview) {
+          existingPreview.remove();
+          // If the same row was clicked, just close it and return
+          if (existingPreview.previousElementSibling === tr) {
+              return;
+          }
+        }
+
+        // Create the new preview row
+        const pr = document.createElement('tr');
+        pr.classList.add('preview-row', 'slide-enter');
+
+        let html = `<td colspan="3"><table class="table readonly-table">
+          <thead><tr><th>Target</th><th>Arrows</th><th>Result</th><th>Score</th><th>Notes</th></tr></thead><tbody>`;
+
+        const data = doc.data();
+        // Sort the entries by target number for display
+        Object.entries(data.entries || {}).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).forEach(([t, e]) => {
+          const sc = window.scores?.[e.resultType]?.[e.arrows] || 0;
+          html += `<tr><td>${t}</td><td>${e.arrows === '0' ? 'Miss' : e.arrows}</td><td>${e.resultType || ''}</td><td>${sc}</td><td>${e.notes || ''}</td></tr>`;
+        });
+
+        html += `</tbody><tfoot><tr><th colspan="3">Total</th><th>${data.totalScore}</th><th></th></tr></tfoot></table></td>`;
+        pr.innerHTML = html;
+
+        // Insert the preview row after the clicked row
+        tr.parentNode.insertBefore(pr, tr.nextSibling);
+
+        // Trigger slide-down animation
+        requestAnimationFrame(() => pr.classList.add('slide-enter-active'));
+
+      } catch (error) {
+        console.error("Error fetching detailed leaderboard entry:", error);
+        alert("Failed to load detailed scores. Check console for details.");
+      }
+    });
+
+    // --- Initial Setup on Page Load ---
+    initSelects(); // Populate dropdowns
+    loadLocal(); // Load saved preferences and apply them
+    updateTable(); // Display any existing local scores
+  });
   </script>
 </body>
 </html>
