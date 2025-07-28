@@ -176,6 +176,13 @@
     .modal-buttons .button {
         flex-grow: 1; /* Make buttons take equal width */
     }
+
+    /* Styling for disabled select when arrows is 'Miss' */
+    .select.is-disabled select {
+      background-color: #e9ecef; /* Light grey background */
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
   </style>
   <!-- Firebase SDKs - using compat versions as in your original code -->
   <!-- Note: These are external. If you want a truly single file, their content would need to be inlined. -->
@@ -226,7 +233,7 @@
         <!-- Result Select (Kill/Wound) -->
         <div class="column is-one-third">
           <label class="label">Result</label>
-          <div class="select is-fullwidth is-rounded">
+          <div class="select is-fullwidth is-rounded" id="resultSelectWrapper">
             <select id="resultSelect"></select>
           </div>
         </div>
@@ -301,6 +308,7 @@
     const targetSelect = document.getElementById('targetSelect');
     const arrowsSelect = document.getElementById('arrowsSelect');
     const resultSelect = document.getElementById('resultSelect');
+    const resultSelectWrapper = document.getElementById('resultSelectWrapper'); // Wrapper for disabling
     const notesInput = document.getElementById('notesInput');
     const addBtn = document.getElementById('addBtn');
     const resetBtn = document.getElementById('resetBtn');
@@ -467,11 +475,25 @@
 
         snapshot.docs.forEach(doc => {
           const data = doc.data();
+          const dateObj = new Date(data.date);
+          // Format date to DD-MM-YYYY
+          const formattedDate = dateObj.toLocaleDateString('nl-NL', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          });
+          // Format time to HH:MM (24-hour)
+          const formattedTime = dateObj.toLocaleTimeString('nl-NL', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+
           const tr = document.createElement('tr');
           tr.dataset.name = data.name; // Store name in dataset for click event
           tr.innerHTML = `
             <td>${data.name}</td>
-            <td>${new Date(data.date).toLocaleString()}</td>
+            <td>${formattedDate}, ${formattedTime}</td>
             <td>${data.totalScore}</td>
           `;
           lbBody.appendChild(tr);
@@ -523,6 +545,19 @@
       updateTable(); // Refresh table display
     });
 
+    // Listen for changes on the 'arrowsSelect' to grey out 'resultSelect' if 'Miss' is chosen
+    arrowsSelect.addEventListener('change', () => {
+        if (arrowsSelect.value === '0') { // '0' is the value for 'Miss'
+            resultSelect.value = ''; // Clear result selection
+            resultSelect.disabled = true;
+            resultSelectWrapper.classList.add('is-disabled'); // Add Bulma's disabled class
+        } else {
+            resultSelect.disabled = false;
+            resultSelectWrapper.classList.remove('is-disabled');
+        }
+    });
+
+
     // Listen for clicks on the 'Load Data' button (for remote data)
     loadDataBtn.addEventListener('click', async () => {
       const name = archerName.value.trim();
@@ -559,8 +594,8 @@
       const notes = notesInput.value.trim();
 
       // Basic validation for required fields
-      if (!target || !arrows || !resultType) {
-        alert('Please select Target, Arrows, and Result.');
+      if (!target || !arrows || (!resultType && arrows !== '0')) { // Result is not required if arrows is 'Miss'
+        alert('Please select Target, Arrows, and Result (unless Miss).');
         return;
       }
 
@@ -604,6 +639,9 @@
       arrowsSelect.value = '';
       resultSelect.value = '';
       notesInput.value = '';
+      // Re-enable result select if it was disabled
+      resultSelect.disabled = false;
+      resultSelectWrapper.classList.remove('is-disabled');
     });
 
     // Listen for clicks on the 'Export CSV' button
@@ -671,21 +709,27 @@
         return;
       }
 
+      // Check if the clicked row is already followed by a preview-row
+      const nextSibling = tr.nextElementSibling;
+      const isAlreadyOpen = nextSibling && nextSibling.classList.contains('preview-row');
+
+      // If the clicked row's preview is already open, close it
+      if (isAlreadyOpen) {
+        nextSibling.remove();
+        return;
+      }
+
+      // Remove any other existing preview row before opening a new one
+      const existingPreview = document.querySelector('.preview-row');
+      if (existingPreview) {
+        existingPreview.remove();
+      }
+
       try {
         const doc = await db.collection('leaderboard').doc(name).get();
         if (!doc.exists) {
           alert(`No detailed data found for ${name}.`);
           return;
-        }
-
-        // Remove any existing preview row to ensure only one is open at a time
-        const existingPreview = document.querySelector('.preview-row');
-        if (existingPreview) {
-          existingPreview.remove();
-          // If the same row was clicked, just close it and return
-          if (existingPreview.previousElementSibling === tr) {
-              return;
-          }
         }
 
         // Create the new preview row
@@ -721,6 +765,13 @@
     initSelects(); // Populate dropdowns
     loadLocal(); // Load saved preferences and apply them
     updateTable(); // Display any existing local scores
+
+    // Initialize the state of resultSelect based on current arrowsSelect value
+    // This handles cases where 'Miss' might be pre-selected on load (e.g., from local storage)
+    if (arrowsSelect.value === '0') {
+      resultSelect.disabled = true;
+      resultSelectWrapper.classList.add('is-disabled');
+    }
   });
   </script>
 </body>
