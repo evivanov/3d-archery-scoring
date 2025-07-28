@@ -273,16 +273,18 @@
     </table>
 
     <!-- Leaderboard Section -->
-    <h2 class="title is-4 mt-6">Global Leaderboard</h2>
-    <div class="controls">
-      <button class="button is-primary is-rounded" id="refreshLeaderboard">Refresh Leaderboard</button>
+    <div id="leaderboardSection" class="hidden"> <!-- Added wrapper div for the whole section -->
+      <h2 class="title is-4 mt-6">Global Leaderboard</h2>
+      <div class="controls">
+        <button class="button is-primary is-rounded" id="refreshLeaderboard">Refresh Leaderboard</button>
+      </div>
+      <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
+        <thead><tr><th>Name</th><th>Date</th><th>Total Score</th></tr></thead>
+        <tbody>
+          <!-- Leaderboard entries will be dynamically inserted here -->
+        </tbody>
+      </table>
     </div>
-    <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
-      <thead><tr><th>Name</th><th>Date</th><th>Total Score</th></tr></thead>
-      <tbody>
-        <!-- Leaderboard entries will be dynamically inserted here -->
-      </tbody>
-    </table>
   </div>
 
   <!-- Custom Confirmation Modal -->
@@ -315,6 +317,7 @@
     const showAllToggle = document.getElementById('showAllToggle');
     const scoreBody = document.getElementById('scoreBody');
     const totalScoreEl = document.getElementById('totalScore');
+    const leaderboardSection = document.getElementById('leaderboardSection'); // New reference for the whole leaderboard section
     const refreshLb = document.getElementById('refreshLeaderboard');
     const lbBody = document.querySelector('#leaderboardTable tbody');
 
@@ -505,13 +508,13 @@
     }
 
     /**
-     * Toggles the visibility of remote-related UI elements (name input, leaderboard).
+     * Toggles the visibility of remote-related UI elements (name input, leaderboard section).
      * This function is called when the remoteToggle checkbox changes.
      */
     function toggleRemote() {
       const on = remoteToggle.checked;
       nameContainer.classList.toggle('hidden', !on); // Show/hide name input container
-      document.getElementById('leaderboardTable').classList.toggle('hidden', !on); // Show/hide leaderboard table
+      leaderboardSection.classList.toggle('hidden', !on); // Show/hide the entire leaderboard section
       saveLocal(); // Save the current state of the 'useRemote' checkbox
 
       if (on) {
@@ -543,6 +546,34 @@
     showAllToggle.addEventListener('change', () => {
       saveLocal(); // Save the state
       updateTable(); // Refresh table display
+    });
+
+    // Listen for changes on the 'targetSelect' to pre-fill form
+    targetSelect.addEventListener('change', () => {
+        const selectedTarget = targetSelect.value;
+        if (selectedTarget && entries[selectedTarget]) {
+            // If data exists for the selected target, pre-fill the form fields
+            const entry = entries[selectedTarget];
+            arrowsSelect.value = entry.arrows;
+            resultSelect.value = entry.resultType;
+            notesInput.value = entry.notes;
+            // Also update the disabled state of resultSelect based on pre-filled arrows
+            if (entry.arrows === '0') {
+                resultSelect.disabled = true;
+                resultSelectWrapper.classList.add('is-disabled');
+            } else {
+                resultSelect.disabled = false;
+                resultSelectWrapper.classList.remove('is-disabled');
+            }
+        } else {
+            // If no data or no target selected, clear the form fields
+            arrowsSelect.value = '';
+            resultSelect.value = '';
+            notesInput.value = '';
+            // Ensure resultSelect is enabled if no data is pre-filled
+            resultSelect.disabled = false;
+            resultSelectWrapper.classList.remove('is-disabled');
+        }
     });
 
     // Listen for changes on the 'arrowsSelect' to grey out 'resultSelect' if 'Miss' is chosen
