@@ -370,6 +370,7 @@
     const monthSelect = document.getElementById('monthSelect'); // New month select dropdown
     const refreshLb = document.getElementById('refreshLeaderboard');
     const lbBody = document.querySelector('#leaderboardTable tbody');
+    const scoreForm = document.getElementById('scoreForm'); // Reference to the score form for scrolling
 
     // Modal elements
     const confirmationModal = document.getElementById('confirmationModal');
@@ -1135,6 +1136,9 @@
 
         // Ensure the correct result input (select or custom text) is shown/hidden
         handleArrowsSelectChange();
+
+        // Scroll to the score form
+        scoreForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
 
