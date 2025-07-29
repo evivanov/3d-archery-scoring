@@ -1,6 +1,7 @@
 // scores.js
 // Map arrows hit and result type to points
 window.scores = {
+  TOTAL_TARGETS: 25,
   1: { // Kill (code 1)
     0: 0,  // Miss
     1: 20,
