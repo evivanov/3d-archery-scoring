@@ -257,7 +257,7 @@
         <!-- Show All Targets Toggle -->
         <div class="column is-full">
           <label class="checkbox mt-4">
-            <input type="checkbox" id="showAllToggle" checked> Show all 25 targets (even un-scored)
+            <input type="checkbox" id="showAllToggle" checked> Show all <span id="totalTargetsDisplay">25</span> targets (even un-scored)
           </label>
         </div>
       </div>
@@ -280,7 +280,10 @@
     <div id="leaderboardSection" class="hidden"> <!-- Added wrapper div for the whole section -->
       <h2 class="title is-4 mt-6">Global Leaderboard</h2>
       <div class="controls">
-        <button class="button is-primary is-rounded" id="refreshLeaderboard">Refresh Leaderboard</button>
+        <div class="select is-rounded">
+          <select id="monthSelect"></select>
+        </div>
+        <button class="button is-primary is-rounded ml-auto" id="refreshLeaderboard">Refresh Leaderboard</button>
       </div>
       <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
         <thead><tr><th>Name</th><th>Date</th><th>Total Score</th></tr></thead>
@@ -321,9 +324,11 @@
     const addBtn = document.getElementById('addBtn');
     const resetBtn = document.getElementById('resetBtn');
     const showAllToggle = document.getElementById('showAllToggle');
+    const totalTargetsDisplay = document.getElementById('totalTargetsDisplay'); // Element to display total targets
     const scoreBody = document.getElementById('scoreBody');
     const totalScoreEl = document.getElementById('totalScore');
-    const leaderboardSection = document.getElementById('leaderboardSection'); // New reference for the whole leaderboard section
+    const leaderboardSection = document.getElementById('leaderboardSection'); // Reference for the whole leaderboard section
+    const monthSelect = document.getElementById('monthSelect'); // New month select dropdown
     const refreshLb = document.getElementById('refreshLeaderboard');
     const lbBody = document.querySelector('#leaderboardTable tbody');
 
@@ -337,6 +342,7 @@
     let entries = JSON.parse(localStorage.getItem('entries') || '{}');
     let db; // Firestore database instance
     let firestoreInitialized = false; // Flag to track Firestore initialization
+    let allLeaderboardData = []; // Store all fetched leaderboard data for client-side filtering
 
     // --- Constants for numerical codes ---
     const MISS_ARROW_STR = '0'; // String representation for 'Miss' in dropdown
@@ -352,15 +358,19 @@
       [NO_RESULT_CODE]: '' // For Miss or Custom, no specific result type
     };
 
+    // Get total targets from scores.js, default to 25 if not defined
+    const TOTAL_TARGETS = window.scores?.TOTAL_TARGETS || 25;
+    totalTargetsDisplay.textContent = TOTAL_TARGETS; // Update display in HTML
+
     // --- Initialization Functions ---
 
     /**
      * Populates the 'Target', 'Arrows', and 'Result' select dropdowns.
      */
     function initSelects() {
-      // Populate Target dropdown (1 to 25)
+      // Populate Target dropdown (1 to TOTAL_TARGETS)
       targetSelect.innerHTML = '<option value="">Select Target...</option>';
-      for (let i = 1; i <= 25; i++) {
+      for (let i = 1; i <= TOTAL_TARGETS; i++) {
         targetSelect.add(new Option(i, i));
       }
 
@@ -431,7 +441,7 @@
 
       // Determine which entries to display based on 'showAllToggle'
       const listToDisplay = showAllToggle.checked
-        ? Array.from({ length: 25 }, (_, i) => ({ target: i + 1, ...entries[i + 1] })) // All 25 targets
+        ? Array.from({ length: TOTAL_TARGETS }, (_, i) => ({ target: i + 1, ...entries[i + 1] })) // All TOTAL_TARGETS targets
         : Object.entries(entries).map(([t, e]) => ({ target: parseInt(t), ...e })); // Only scored targets
 
       // Sort entries numerically by target ID
@@ -505,14 +515,15 @@
       }
       // Always attempt to fetch leaderboard after init (or if already inited)
       if (firestoreInitialized) {
-        fetchLeaderboard();
+        fetchAllLeaderboardData(); // Fetch all data first
       }
     }
 
     /**
-     * Fetches and displays the leaderboard data from Firestore.
+     * Fetches ALL leaderboard data from Firestore and stores it.
+     * Then initializes the month select and displays the default leaderboard.
      */
-    async function fetchLeaderboard() {
+    async function fetchAllLeaderboardData() {
       lbBody.innerHTML = '<tr><td colspan="3">Loading leaderboard...</td></tr>'; // Loading indicator
       if (!db) {
         lbBody.innerHTML = '<tr><td colspan="3">Firestore not initialized.</td></tr>';
@@ -521,49 +532,116 @@
       }
 
       try {
-        // Query the 'leaderboard' collection, order by totalScore descending, limit to 10
         const snapshot = await db.collection('leaderboard')
-          .orderBy('totalScore', 'desc')
-          .limit(10)
+          .orderBy('date', 'desc') // Order by date to easily get unique months
           .get();
 
-        lbBody.innerHTML = ''; // Clear existing leaderboard entries
+        allLeaderboardData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        initLeaderboardMonthSelect(); // Populate month dropdown based on fetched data
+        
+        // Set default filter to current month
+        const today = new Date();
+        const currentMonthValue = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}`;
+        monthSelect.value = currentMonthValue; // Set the dropdown to current month
+        displayLeaderboard(currentMonthValue); // Display current month by default
 
-        if (snapshot.empty) {
-          lbBody.insertAdjacentHTML('beforeend', `<tr><td colspan="3">No leaderboard data yet.</td></tr>`);
-          return;
-        }
-
-        snapshot.docs.forEach(doc => {
-          const data = doc.data();
-          const dateObj = new Date(data.date);
-          // Format date to DD-MM-YYYY
-          const formattedDate = dateObj.toLocaleDateString('nl-NL', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-          });
-          // Format time to HH:MM (24-hour)
-          const formattedTime = dateObj.toLocaleTimeString('nl-NL', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-          });
-
-          const tr = document.createElement('tr');
-          tr.dataset.name = data.name; // Store name in dataset for click event
-          tr.innerHTML = `
-            <td>${data.name}</td>
-            <td>${formattedDate}, ${formattedTime}</td>
-            <td>${data.totalScore}</td>
-          `;
-          lbBody.appendChild(tr);
-        });
       } catch (error) {
-        console.error("Error fetching leaderboard:", error);
+        console.error("Error fetching all leaderboard data:", error);
         lbBody.innerHTML = `<tr><td colspan="3">Error loading leaderboard.</td>`;
+        allLeaderboardData = []; // Clear data on error
       }
     }
+
+    /**
+     * Populates the month selection dropdown based on available data dates.
+     */
+    function initLeaderboardMonthSelect() {
+        monthSelect.innerHTML = ''; // Clear existing options
+
+        // Add default options
+        monthSelect.add(new Option('Total Leaderboard', 'total'));
+        
+        const today = new Date();
+        const currentMonthValue = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}`;
+        monthSelect.add(new Option('Current Month', currentMonthValue));
+
+        const uniqueMonths = new Set();
+        allLeaderboardData.forEach(data => {
+            if (data.date) {
+                const entryDate = new Date(data.date);
+                const monthYear = `${entryDate.getFullYear()}-${(entryDate.getMonth() + 1).toString().padStart(2, '0')}`;
+                uniqueMonths.add(monthYear);
+            }
+        });
+
+        // Add past months, sorted
+        Array.from(uniqueMonths)
+            .sort((a, b) => b.localeCompare(a)) // Sort in descending order (newest first)
+            .forEach(monthYear => {
+                if (monthYear !== currentMonthValue) { // Avoid duplicating 'Current Month'
+                    const [year, month] = monthYear.split('-');
+                    const monthName = new Date(year, parseInt(month) - 1, 1).toLocaleString('en-US', { month: 'long' });
+                    monthSelect.add(new Option(`${monthName} ${year}`, monthYear));
+                }
+            });
+    }
+
+
+    /**
+     * Displays the leaderboard data, filtered by the given month.
+     * @param {string} filter - 'total' for all data, or 'YYYY-MM' for a specific month.
+     */
+    function displayLeaderboard(filter) {
+        lbBody.innerHTML = ''; // Clear existing entries
+        let filteredData = [];
+
+        if (filter === 'total') {
+            filteredData = allLeaderboardData;
+        } else {
+            // Filter by month (YYYY-MM)
+            filteredData = allLeaderboardData.filter(data => {
+                if (data.date) {
+                    const entryDate = new Date(data.date);
+                    const monthYear = `${entryDate.getFullYear()}-${(entryDate.getMonth() + 1).toString().padStart(2, '0')}`;
+                    return monthYear === filter;
+                }
+                return false;
+            });
+        }
+
+        if (filteredData.length === 0) {
+            lbBody.insertAdjacentHTML('beforeend', `<tr><td colspan="3">No leaderboard data for this period.</td></tr>`);
+            return;
+        }
+
+        // Sort filtered data by totalScore descending
+        filteredData.sort((a, b) => b.totalScore - a.totalScore).forEach(data => {
+            const dateObj = new Date(data.date);
+            // Format date to DD-MM-YYYY
+            const formattedDate = dateObj.toLocaleDateString('nl-NL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+            // Format time to HH:MM (24-hour)
+            const formattedTime = dateObj.toLocaleTimeString('nl-NL', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+
+            const tr = document.createElement('tr');
+            tr.dataset.name = data.name; // Store name in dataset for click event
+            tr.innerHTML = `
+                <td>${data.name}</td>
+                <td>${formattedDate}, ${formattedTime}</td>
+                <td>${data.totalScore}</td>
+            `;
+            lbBody.appendChild(tr);
+        });
+    }
+
 
     /**
      * Toggles the visibility of remote-related UI elements (name input, leaderboard section).
@@ -768,7 +846,7 @@
           entries: entries // Store all entries for detailed view
         }).then(() => {
           console.log("Remote score updated successfully!");
-          fetchLeaderboard(); // Refresh leaderboard after update
+          fetchAllLeaderboardData(); // Re-fetch all data to update month options and display
         }).catch(error => {
           console.error("Error updating remote score:", error);
           alert("Failed to update remote score. Check console for details.");
@@ -824,7 +902,7 @@
         const name = archerName.value.trim();
         db.collection('leaderboard').doc(name).delete().then(() => {
           console.log(`Remote score for ${name} deleted.`);
-          fetchLeaderboard(); // Refresh leaderboard after deletion
+          fetchAllLeaderboardData(); // Re-fetch all data to update month options and display
         }).catch(error => {
           console.error(`Error deleting remote score for ${name}:`, error);
           alert("Failed to delete remote score. Check console for details.");
@@ -836,8 +914,13 @@
       hideConfirmationModal(); // Just hide the modal if cancelled
     });
 
+    // Listen for changes on the month selection dropdown
+    monthSelect.addEventListener('change', () => {
+        displayLeaderboard(monthSelect.value);
+    });
+
     // Listen for clicks on the 'Refresh Leaderboard' button
-    refreshLb.addEventListener('click', fetchLeaderboard);
+    refreshLb.addEventListener('click', fetchAllLeaderboardData); // Now refreshes all data and re-filters
 
     // Listen for clicks on leaderboard table rows to show detailed scores
     document.querySelector('#leaderboardTable tbody')
@@ -909,7 +992,7 @@
               score = 0;
           }
 
-          html += `<tr><td>${t}</td><td>${displayArrows}</td><td>${displayResult}</td><td>${score}</td><td>${e.notes || ''}</td></tr>`;
+          html += `<tr><td>${t}</td><td>${displayArrows}</td><td>${displayResult}</td><td>${score}</td><td>${entry.notes || ''}</td></tr>`;
         });
 
         html += `</tbody><tfoot><tr><th colspan="3">Total</th><th>${data.totalScore}</th><th></th></tr></tfoot></table></td>`;
