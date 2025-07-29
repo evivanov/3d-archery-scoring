@@ -15,3 +15,14 @@ window.scores = {
     3: 5
   }
 };
+
+// // Hunter round points
+// window.hunterRoundPoints = {
+//   1: { // Kill (code 1)
+//     1: 20
+//   },
+//   2: { // Wound (code 2)
+//     1: 10
+//   }
+//   // Normal hunter is 10
+// };
