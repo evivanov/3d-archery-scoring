@@ -79,6 +79,10 @@
     tbody tr:nth-child(even) {
       background: #fdfdfd; /* Very light alternating row color */
     }
+    tbody tr:hover {
+      background-color: #e6f7ff; /* Light blue on hover for clickable rows */
+      cursor: pointer;
+    }
 
     /* Styling for missed entries */
     .missed {
@@ -187,7 +191,6 @@
 
     /* Alignment adjustments for buttons within controls */
     .controls .button {
-        /* Removed align-self: flex-end; to let parent align-items: center handle vertical alignment */
         margin-top: 0; /* Remove default margin-top from Bulma's .button */
     }
     .controls .field {
@@ -195,7 +198,6 @@
     }
 
     /* Alignment adjustments for form buttons */
-    /* This rule now ensures the buttons align visually with the top of the input fields */
     .column .button {
         /* Adjusted margin-top to align with the notes input field */
         margin-top: 2.2rem !important; /* This value is tuned for visual alignment */
@@ -205,13 +207,6 @@
     @media (max-width: 768px) { /* Bulma's tablet breakpoint */
       .hide-on-mobile {
         display: none;
-      }
-      /* Adjust colspan for total score row when notes column is hidden */
-      .score-table tfoot tr th:first-child {
-        /* Adjust colspan for the total score row to account for hidden Notes column */
-        /* Original colspan was 3, now it should be 2 if Notes is hidden */
-        /* This is tricky with Bulma's default table structure, manual adjustment might be needed */
-        /* For this specific case, we'll adjust the colspan in JS when rendering */
       }
     }
   </style>
@@ -311,7 +306,11 @@
         <!-- Score entries will be dynamically inserted here -->
       </tbody>
       <tfoot>
-        <tr><th id="localTableColspan" colspan="4">Total Score</th><th id="totalScore">0</th><th class="hide-on-mobile"></th></tr> <!-- Colspan adjusted dynamically -->
+        <tr>
+          <th colspan="3">Total Score</th> <!-- Fixed colspan to span #, Arrows, Result -->
+          <th id="totalScore">0</th>
+          <th class="hide-on-mobile"></th> <!-- Empty th for Notes column alignment -->
+        </tr>
       </tfoot>
     </table>
 
@@ -366,7 +365,7 @@
     const totalTargetsDisplay = document.getElementById('totalTargetsDisplay'); // Element to display total targets
     const scoreBody = document.getElementById('scoreBody');
     const totalScoreEl = document.getElementById('totalScore');
-    const localTableColspan = document.getElementById('localTableColspan'); // For adjusting colspan dynamically
+    // const totalScoreLabel = document.getElementById('totalScoreLabel'); // Removed as colspan is fixed in HTML
     const leaderboardSection = document.getElementById('leaderboardSection'); // Reference for the whole leaderboard section
     const monthSelect = document.getElementById('monthSelect'); // New month select dropdown
     const refreshLb = document.getElementById('refreshLeaderboard');
@@ -498,13 +497,6 @@
     function updateTable() {
       scoreBody.innerHTML = ''; // Clear existing table rows
       let total = 0;
-
-      // Adjust colspan for total score row based on mobile view
-      if (isMobile()) {
-        localTableColspan.setAttribute('colspan', '3'); // Hide Notes column
-      } else {
-        localTableColspan.setAttribute('colspan', '4'); // Show Notes column
-      }
 
       // Determine which entries to display based on 'showAllToggle'
       const listToDisplay = showAllToggle.checked
@@ -662,6 +654,12 @@
     function displayLeaderboard(filter) {
         lbBody.innerHTML = ''; // Clear existing entries
         let filteredData = [];
+
+        // Remove any existing preview row
+        const existingPreview = document.querySelector('.preview-row');
+        if (existingPreview) {
+            existingPreview.remove();
+        }
 
         if (filter === 'total') {
             filteredData = allLeaderboardData;
@@ -1098,6 +1096,47 @@
         alert("Failed to load detailed scores. Check console for details.");
       }
     });
+
+    // --- New Event Listener for Local Score Table Rows (Click to Edit) ---
+    scoreBody.addEventListener('click', (e) => {
+        const clickedRow = e.target.closest('tr');
+        if (!clickedRow) return; // Not a row
+
+        // Get the target number from the first cell
+        const targetNumber = parseInt(clickedRow.cells[0].textContent);
+
+        // Always set the targetSelect value
+        targetSelect.value = targetNumber;
+
+        // Check if there's an existing entry for this target
+        if (entries[targetNumber]) {
+            const entryData = entries[targetNumber];
+
+            // Handle arrows pre-fill, including 'Custom'
+            if (typeof entryData.arrows === 'number' && entryData.resultType === NO_RESULT_CODE && entryData.arrows !== 0) {
+                // This is a custom score
+                arrowsSelect.value = CUSTOM_ARROW_STR;
+                customScoreInput.value = entryData.arrows;
+            } else if (entryData.arrows === 0) { // Miss
+                arrowsSelect.value = MISS_ARROW_STR;
+            } else {
+                arrowsSelect.value = entryData.arrows.toString(); // Standard 1, 2, 3
+            }
+
+            resultSelect.value = entryData.resultType;
+            notesInput.value = entryData.notes;
+        } else {
+            // If no data for this target, clear other fields
+            arrowsSelect.value = '';
+            resultSelect.value = '';
+            notesInput.value = '';
+            customScoreInput.value = ''; // Clear custom score input
+        }
+
+        // Ensure the correct result input (select or custom text) is shown/hidden
+        handleArrowsSelectChange();
+    });
+
 
     // --- Initial Setup on Page Load ---
     initSelects(); // Populate dropdowns
