@@ -41,7 +41,7 @@
       display: flex;
       flex-wrap: wrap; /* Allow items to wrap on smaller screens */
       gap: 0.75rem; /* Space between control elements */
-      align-items: center;
+      align-items: center; /* Vertically center items in this flex container */
       padding-bottom: 1rem;
       border-bottom: 1px solid #eee; /* Separator line */
     }
@@ -184,6 +184,22 @@
       cursor: not-allowed;
       opacity: 0.7;
     }
+
+    /* Alignment adjustments for buttons within controls */
+    .controls .button {
+        /* Removed align-self: flex-end; to let parent align-items: center handle vertical alignment */
+        margin-top: 0; /* Remove default margin-top from Bulma's .button */
+    }
+    .controls .field {
+        margin-bottom: 0; /* Remove default margin-bottom from Bulma's .field */
+    }
+
+    /* Alignment adjustments for form buttons */
+    /* This rule now ensures the buttons align visually with the top of the input fields */
+    .column .button {
+        /* Adjusted margin-top to align with the notes input field */
+        margin-top: 2.2rem !important; /* This value is tuned for visual alignment */
+    }
   </style>
   <!-- Firebase SDKs - using compat versions as in your original code -->
   <!-- Note: These are external. If you want a truly single file, their content would need to be inlined. -->
@@ -248,11 +264,11 @@
         </div>
         <!-- Save Target Button -->
         <div class="column is-one-third">
-          <button class="button is-success is-rounded mt-5 is-fullwidth" type="button" id="addBtn">Save Target</button>
+          <button class="button is-success is-rounded is-fullwidth" type="button" id="addBtn">Save Target</button>
         </div>
         <!-- Reset Button -->
         <div class="column is-one-third">
-          <button class="button is-warning is-rounded mt-5 is-fullwidth" type="button" id="resetBtn">Reset All</button>
+          <button class="button is-warning is-rounded is-fullwidth" type="button" id="resetBtn">Reset All</button>
         </div>
         <!-- Show All Targets Toggle -->
         <div class="column is-full">
@@ -386,8 +402,8 @@
           Object.keys(window.scores[WOUND_CODE]).forEach(k => arrowValues.add(parseInt(k)));
         }
         
-        // Add standard arrow options, excluding '0' (Miss) for now
-        Array.from(arrowValues).sort((a,b) => b-a).forEach(val => { // Sort descending for standard values
+        // Add standard arrow options, sorted in ascending order (1, 2, 3)
+        Array.from(arrowValues).sort((a,b) => a-b).forEach(val => { // Changed sort order to a-b
             if (val !== 0) { // '0' is handled as 'Miss' explicitly
                 arrowsSelect.add(new Option(val.toString(), val.toString()));
             }
@@ -396,9 +412,9 @@
       } else {
         console.error("window.scores is not defined or missing numerical keys. Check scores.js.");
         // Fallback options if scores.js isn't loaded correctly or malformed
-        arrowsSelect.add(new Option('10', '10'));
-        arrowsSelect.add(new Option('8', '8'));
-        arrowsSelect.add(new Option('5', '5'));
+        arrowsSelect.add(new Option('1', '1')); // Changed fallback to 1, 2, 3
+        arrowsSelect.add(new Option('2', '2'));
+        arrowsSelect.add(new Option('3', '3'));
         arrowsSelect.add(new Option('Miss', MISS_ARROW_STR));
       }
       arrowsSelect.add(new Option('Custom', CUSTOM_ARROW_STR)); // Add Custom option
@@ -457,7 +473,7 @@
             score = 0;
         } else if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
             // This is a custom score (numerical arrows, resultType 0, arrows not 0)
-            displayArrows = entry.arrows.toString(); // Display the custom number
+            displayArrows = 'Custom'; // Display 'Custom' in Arrows column
             displayResult = ''; // No result type for custom
             score = entry.arrows; // Custom score is the arrow value itself
         } else if (typeof entry.arrows === 'number' && typeof entry.resultType === 'number') {
@@ -770,7 +786,8 @@
         } else {
           alert(`No data found for ${name}.`);
         }
-      } catch (error) {
+      }
+      catch (error) {
         console.error("Error loading remote data:", error);
         alert("Failed to load remote data. Check console for details.");
       }
@@ -979,7 +996,7 @@
               score = 0;
           } else if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
               // This is a custom score
-              displayArrows = entry.arrows.toString(); // Display the custom number
+              displayArrows = 'Custom'; // Display 'Custom' in Arrows column
               displayResult = ''; // No result type for custom
               score = entry.arrows; // Custom score is the arrow value itself
           } else if (typeof entry.arrows === 'number' && typeof entry.resultType === 'number') {
