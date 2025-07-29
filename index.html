@@ -367,14 +367,18 @@
       // Populate Arrows dropdown
       arrowsSelect.innerHTML = '<option value="">Select Arrows...</option>';
       if (window.scores && (window.scores[KILL_CODE] || window.scores[WOUND_CODE])) {
-        // Get unique arrow values from either Kill or Wound scores
         const arrowValues = new Set();
-        Object.keys(window.scores[KILL_CODE] || {}).forEach(k => arrowValues.add(parseInt(k)));
-        Object.keys(window.scores[WOUND_CODE] || {}).forEach(k => arrowValues.add(parseInt(k)));
+        // Iterate through the numerical keys of Kill and Wound scores to get all arrow values
+        if (window.scores[KILL_CODE]) {
+          Object.keys(window.scores[KILL_CODE]).forEach(k => arrowValues.add(parseInt(k)));
+        }
+        if (window.scores[WOUND_CODE]) {
+          Object.keys(window.scores[WOUND_CODE]).forEach(k => arrowValues.add(parseInt(k)));
+        }
         
-        // Add standard arrow options
-        Array.from(arrowValues).sort((a,b) => b-a).forEach(val => { // Sort descending for 10, 8, 5
-            if (val !== 0) { // Don't add '0' here, it's handled as 'Miss'
+        // Add standard arrow options, excluding '0' (Miss) for now
+        Array.from(arrowValues).sort((a,b) => b-a).forEach(val => { // Sort descending for standard values
+            if (val !== 0) { // '0' is handled as 'Miss' explicitly
                 arrowsSelect.add(new Option(val.toString(), val.toString()));
             }
         });
@@ -437,32 +441,26 @@
         let score = 0;
 
         // Determine display values and score based on stored numerical values
-        if (entry.arrows === 0) { // Miss
+        if (entry.arrows === 0) { // Miss (numerical 0)
             displayArrows = 'Miss';
             displayResult = '';
             score = 0;
-        } else if (entry.arrows === CUSTOM_ARROW_STR) { // This should not happen if stored as number
-            // Fallback for old data or if custom was stored as string
-            displayArrows = CUSTOM_ARROW_STR;
-            displayResult = '';
-            score = parseInt(entry.resultType) || 0; // Assuming resultType holds the custom score
-        } else if (typeof entry.arrows === 'number' && entry.resultType !== undefined) {
+        } else if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
+            // This is a custom score (numerical arrows, resultType 0, arrows not 0)
+            displayArrows = entry.arrows.toString(); // Display the custom number
+            displayResult = ''; // No result type for custom
+            score = entry.arrows; // Custom score is the arrow value itself
+        } else if (typeof entry.arrows === 'number' && typeof entry.resultType === 'number') {
+            // Standard Kill/Wound scores (numerical arrows and resultType)
             displayArrows = entry.arrows.toString();
             displayResult = RESULT_CODES_MAP[entry.resultType] || '';
             score = window.scores?.[entry.resultType]?.[entry.arrows] || 0;
-        } else { // Fallback for undefined or malformed entries
+        } else { // Fallback for undefined or malformed entries (e.g., old string data)
             displayArrows = entry.arrows || '';
             displayResult = entry.resultType || '';
-            score = 0; // Or try to parse from old string format if needed
+            score = 0; // Default score
+            console.warn("Unexpected entry format encountered:", entry);
         }
-
-        // If 'Custom' was stored as a number for arrows, display that number
-        if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
-            displayArrows = entry.arrows.toString();
-            displayResult = ''; // No result type for custom
-            score = entry.arrows; // Custom score is the arrow value itself
-        }
-
 
         total += score; // Accumulate total score
 
@@ -617,16 +615,16 @@
 
             // Handle arrows pre-fill, including 'Custom'
             if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
-                // This is a custom score
+                // This is a custom score (stored as a number, resultType 0, and not 0 itself)
                 arrowsSelect.value = CUSTOM_ARROW_STR;
                 customScoreInput.value = entry.arrows;
-            } else if (entry.arrows === 0) { // Miss
+            } else if (entry.arrows === 0) { // Miss (numerical 0)
                 arrowsSelect.value = MISS_ARROW_STR;
             } else {
-                arrowsSelect.value = entry.arrows.toString(); // Standard 10, 8, 5
+                arrowsSelect.value = entry.arrows.toString(); // Standard numerical arrows (1, 2, 3)
             }
 
-            resultSelect.value = entry.resultType;
+            resultSelect.value = entry.resultType; // This will be the numerical code (1, 2, or 0)
             notesInput.value = entry.notes;
 
             // Update visibility and disabled state based on pre-filled arrows
@@ -652,21 +650,21 @@
         const selectedArrow = arrowsSelect.value;
 
         if (selectedArrow === CUSTOM_ARROW_STR) {
-            resultSelectWrapper.classList.add('hidden');
-            customScoreInputWrapper.classList.remove('hidden');
+            resultSelectWrapper.classList.add('hidden'); // Hide standard result dropdown
+            customScoreInputWrapper.classList.remove('hidden'); // Show custom score input
             customScoreInput.disabled = false; // Ensure custom input is enabled
             resultSelect.value = ''; // Clear result selection
         } else if (selectedArrow === MISS_ARROW_STR) {
-            resultSelectWrapper.classList.remove('hidden');
-            customScoreInputWrapper.classList.add('hidden');
+            resultSelectWrapper.classList.remove('hidden'); // Show standard result dropdown
+            customScoreInputWrapper.classList.add('hidden'); // Hide custom score input
             resultSelect.value = ''; // Clear result selection
-            resultSelect.disabled = true;
-            resultSelectWrapper.classList.add('is-disabled');
+            resultSelect.disabled = true; // Disable result dropdown
+            resultSelectWrapper.classList.add('is-disabled'); // Add Bulma's disabled class for styling
         } else {
-            resultSelectWrapper.classList.remove('hidden');
-            customScoreInputWrapper.classList.add('hidden');
-            resultSelect.disabled = false;
-            resultSelectWrapper.classList.remove('is-disabled');
+            resultSelectWrapper.classList.remove('hidden'); // Show standard result dropdown
+            customScoreInputWrapper.classList.add('hidden'); // Hide custom score input
+            resultSelect.disabled = false; // Enable result dropdown
+            resultSelectWrapper.classList.remove('is-disabled'); // Remove Bulma's disabled class
         }
     }
     arrowsSelect.addEventListener('change', handleArrowsSelectChange);
@@ -704,25 +702,25 @@
     addBtn.addEventListener('click', () => {
       const target = targetSelect.value;
       const selectedArrowOption = arrowsSelect.value;
-      let arrowsValue; // This will hold the numerical arrows value
-      let resultTypeValue; // This will hold the numerical result type value
+      let arrowsValue; // This will hold the numerical arrows value to be stored
+      let resultTypeValue; // This will hold the numerical result type value to be stored
 
       // Determine arrowsValue and resultTypeValue based on selected option
       if (selectedArrowOption === CUSTOM_ARROW_STR) {
           arrowsValue = parseInt(customScoreInput.value);
           if (isNaN(arrowsValue) || arrowsValue < 0) {
-              alert('Please enter a valid positive integer for Custom Score.');
+              alert('Please enter a valid non-negative integer for Custom Score.');
               return;
           }
-          resultTypeValue = NO_RESULT_CODE; // No result type for custom score
+          resultTypeValue = NO_RESULT_CODE; // Custom score has no standard result type
       } else if (selectedArrowOption === MISS_ARROW_STR) {
           arrowsValue = 0; // Numerical 0 for Miss
-          resultTypeValue = NO_RESULT_CODE; // No result type for Miss
+          resultTypeValue = NO_RESULT_CODE; // Miss has no standard result type
       } else {
-          arrowsValue = parseInt(selectedArrowOption); // Standard 10, 8, 5 as numbers
+          arrowsValue = parseInt(selectedArrowOption); // Standard 1, 2, 3 as numbers
           resultTypeValue = parseInt(resultSelect.value); // Kill/Wound codes as numbers
-          if (!resultTypeValue) { // Check if result type is selected for non-miss/custom
-              alert('Please select a Result type.');
+          if (isNaN(arrowsValue) || !resultTypeValue) { // Check if valid numbers and result type selected
+              alert('Please select valid Arrows and a Result type.');
               return;
           }
       }
@@ -755,9 +753,9 @@
         // Calculate the total score from current local entries
         const totalScore = Object.values(entries).reduce((sum, entry) => {
           if (entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) { // Custom score
-              return sum + entry.arrows;
+              return sum + entry.arrows; // Custom score is its own value
           }
-          // Ensure window.scores, entry.resultType, and entry.arrows exist before accessing
+          // For standard scores, use the scores.js mapping
           return sum + (window.scores?.[entry.resultType]?.[entry.arrows] || 0);
         }, 0);
 
@@ -783,7 +781,7 @@
       resultSelect.value = '';
       notesInput.value = '';
       customScoreInput.value = ''; // Clear custom score input
-      // Re-enable result select and hide custom input
+      // Reset form controls to default state
       resultSelect.disabled = false;
       resultSelectWrapper.classList.remove('is-disabled');
       customScoreInputWrapper.classList.add('hidden');
@@ -892,7 +890,7 @@
           let score = 0;
 
           // Determine display values and score based on stored numerical values
-          if (entry.arrows === 0) { // Miss
+          if (entry.arrows === 0) { // Miss (numerical 0)
               displayArrows = 'Miss';
               displayResult = '';
               score = 0;
