@@ -177,8 +177,9 @@
         flex-grow: 1; /* Make buttons take equal width */
     }
 
-    /* Styling for disabled select when arrows is 'Miss' */
-    .select.is-disabled select {
+    /* Styling for disabled select/input when arrows is 'Miss' or 'Custom' */
+    .select.is-disabled select,
+    .input.is-disabled { /* Apply to input directly */
       background-color: #e9ecef; /* Light grey background */
       cursor: not-allowed;
       opacity: 0.7;
@@ -230,11 +231,14 @@
             <select id="arrowsSelect"></select>
           </div>
         </div>
-        <!-- Result Select (Kill/Wound) -->
+        <!-- Result Select (Kill/Wound) OR Custom Score Input -->
         <div class="column is-one-third">
           <label class="label">Result</label>
           <div class="select is-fullwidth is-rounded" id="resultSelectWrapper">
             <select id="resultSelect"></select>
+          </div>
+          <div class="control is-fullwidth hidden" id="customScoreInputWrapper">
+            <input class="input is-rounded" type="number" id="customScoreInput" placeholder="Enter Score" min="0" step="1">
           </div>
         </div>
         <!-- Notes Input -->
@@ -311,6 +315,8 @@
     const arrowsSelect = document.getElementById('arrowsSelect');
     const resultSelect = document.getElementById('resultSelect');
     const resultSelectWrapper = document.getElementById('resultSelectWrapper'); // Wrapper for disabling
+    const customScoreInput = document.getElementById('customScoreInput'); // New custom score input
+    const customScoreInputWrapper = document.getElementById('customScoreInputWrapper'); // New custom score input wrapper
     const notesInput = document.getElementById('notesInput');
     const addBtn = document.getElementById('addBtn');
     const resetBtn = document.getElementById('resetBtn');
@@ -332,6 +338,20 @@
     let db; // Firestore database instance
     let firestoreInitialized = false; // Flag to track Firestore initialization
 
+    // --- Constants for numerical codes ---
+    const MISS_ARROW_STR = '0'; // String representation for 'Miss' in dropdown
+    const CUSTOM_ARROW_STR = 'custom'; // String representation for 'Custom' in dropdown
+    const KILL_CODE = 1;
+    const WOUND_CODE = 2;
+    const NO_RESULT_CODE = 0; // For Miss or Custom scores
+
+    // Reverse mapping for displaying result types
+    const RESULT_CODES_MAP = {
+      [KILL_CODE]: 'Kill',
+      [WOUND_CODE]: 'Wound',
+      [NO_RESULT_CODE]: '' // For Miss or Custom, no specific result type
+    };
+
     // --- Initialization Functions ---
 
     /**
@@ -344,26 +364,36 @@
         targetSelect.add(new Option(i, i));
       }
 
-      // Populate Arrows dropdown using keys from 'Kill' scores (assuming 'Kill' is representative)
+      // Populate Arrows dropdown
       arrowsSelect.innerHTML = '<option value="">Select Arrows...</option>';
-      // Ensure window.scores and window.scores.Kill exist before accessing
-      if (window.scores && window.scores.Kill) {
-        Object.keys(window.scores.Kill).forEach(k => {
-          arrowsSelect.add(new Option(k === '0' ? 'Miss' : k, k));
+      if (window.scores && (window.scores[KILL_CODE] || window.scores[WOUND_CODE])) {
+        // Get unique arrow values from either Kill or Wound scores
+        const arrowValues = new Set();
+        Object.keys(window.scores[KILL_CODE] || {}).forEach(k => arrowValues.add(parseInt(k)));
+        Object.keys(window.scores[WOUND_CODE] || {}).forEach(k => arrowValues.add(parseInt(k)));
+        
+        // Add standard arrow options
+        Array.from(arrowValues).sort((a,b) => b-a).forEach(val => { // Sort descending for 10, 8, 5
+            if (val !== 0) { // Don't add '0' here, it's handled as 'Miss'
+                arrowsSelect.add(new Option(val.toString(), val.toString()));
+            }
         });
+        arrowsSelect.add(new Option('Miss', MISS_ARROW_STR)); // Add Miss explicitly
       } else {
-        console.error("window.scores or window.scores.Kill is not defined. Check scores.js.");
-        // Fallback options if scores.js isn't loaded correctly
+        console.error("window.scores is not defined or missing numerical keys. Check scores.js.");
+        // Fallback options if scores.js isn't loaded correctly or malformed
         arrowsSelect.add(new Option('10', '10'));
         arrowsSelect.add(new Option('8', '8'));
         arrowsSelect.add(new Option('5', '5'));
-        arrowsSelect.add(new Option('Miss', '0'));
+        arrowsSelect.add(new Option('Miss', MISS_ARROW_STR));
       }
+      arrowsSelect.add(new Option('Custom', CUSTOM_ARROW_STR)); // Add Custom option
 
 
       // Populate Result dropdown (Kill, Wound)
       resultSelect.innerHTML = '<option value="">Select Result...</option>';
-      ['Kill', 'Wound'].forEach(r => resultSelect.add(new Option(r, r)));
+      resultSelect.add(new Option(RESULT_CODES_MAP[KILL_CODE], KILL_CODE));
+      resultSelect.add(new Option(RESULT_CODES_MAP[WOUND_CODE], WOUND_CODE));
     }
 
     /**
@@ -402,20 +432,50 @@
 
       // Sort entries numerically by target ID
       listToDisplay.sort((a, b) => a.target - b.target).forEach(entry => {
-        // Calculate score, defaulting to 0 if resultType or arrows are undefined
-        const score = window.scores?.[entry.resultType]?.[entry.arrows] || 0;
+        let displayArrows = '';
+        let displayResult = '';
+        let score = 0;
+
+        // Determine display values and score based on stored numerical values
+        if (entry.arrows === 0) { // Miss
+            displayArrows = 'Miss';
+            displayResult = '';
+            score = 0;
+        } else if (entry.arrows === CUSTOM_ARROW_STR) { // This should not happen if stored as number
+            // Fallback for old data or if custom was stored as string
+            displayArrows = CUSTOM_ARROW_STR;
+            displayResult = '';
+            score = parseInt(entry.resultType) || 0; // Assuming resultType holds the custom score
+        } else if (typeof entry.arrows === 'number' && entry.resultType !== undefined) {
+            displayArrows = entry.arrows.toString();
+            displayResult = RESULT_CODES_MAP[entry.resultType] || '';
+            score = window.scores?.[entry.resultType]?.[entry.arrows] || 0;
+        } else { // Fallback for undefined or malformed entries
+            displayArrows = entry.arrows || '';
+            displayResult = entry.resultType || '';
+            score = 0; // Or try to parse from old string format if needed
+        }
+
+        // If 'Custom' was stored as a number for arrows, display that number
+        if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
+            displayArrows = entry.arrows.toString();
+            displayResult = ''; // No result type for custom
+            score = entry.arrows; // Custom score is the arrow value itself
+        }
+
+
         total += score; // Accumulate total score
 
         const tr = document.createElement('tr'); // Create a new table row
-        if (entry.arrows === '0') {
+        if (entry.arrows === 0) { // Check for numerical 0 for Miss
           tr.classList.add('missed'); // Add 'missed' class if arrows hit is '0'
         }
 
         // Populate the row with data. Use empty string if data is undefined for display.
         tr.innerHTML = `
           <td>${entry.target || ''}</td>
-          <td>${entry.arrows === '0' ? 'Miss' : (entry.arrows || '')}</td>
-          <td>${entry.resultType || ''}</td>
+          <td>${displayArrows}</td>
+          <td>${displayResult}</td>
           <td>${score}</td>
           <td>${entry.notes || ''}</td>
         `;
@@ -503,7 +563,7 @@
         });
       } catch (error) {
         console.error("Error fetching leaderboard:", error);
-        lbBody.innerHTML = `<tr><td colspan="3">Error loading leaderboard.</td></tr>`;
+        lbBody.innerHTML = `<tr><td colspan="3">Error loading leaderboard.</td>`;
       }
     }
 
@@ -554,39 +614,62 @@
         if (selectedTarget && entries[selectedTarget]) {
             // If data exists for the selected target, pre-fill the form fields
             const entry = entries[selectedTarget];
-            arrowsSelect.value = entry.arrows;
+
+            // Handle arrows pre-fill, including 'Custom'
+            if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
+                // This is a custom score
+                arrowsSelect.value = CUSTOM_ARROW_STR;
+                customScoreInput.value = entry.arrows;
+            } else if (entry.arrows === 0) { // Miss
+                arrowsSelect.value = MISS_ARROW_STR;
+            } else {
+                arrowsSelect.value = entry.arrows.toString(); // Standard 10, 8, 5
+            }
+
             resultSelect.value = entry.resultType;
             notesInput.value = entry.notes;
-            // Also update the disabled state of resultSelect based on pre-filled arrows
-            if (entry.arrows === '0') {
-                resultSelect.disabled = true;
-                resultSelectWrapper.classList.add('is-disabled');
-            } else {
-                resultSelect.disabled = false;
-                resultSelectWrapper.classList.remove('is-disabled');
-            }
+
+            // Update visibility and disabled state based on pre-filled arrows
+            handleArrowsSelectChange(); // Call the handler directly
         } else {
             // If no data or no target selected, clear the form fields
             arrowsSelect.value = '';
             resultSelect.value = '';
             notesInput.value = '';
-            // Ensure resultSelect is enabled if no data is pre-filled
+            customScoreInput.value = ''; // Clear custom score input
+            // Ensure resultSelect is enabled and custom input is hidden
             resultSelect.disabled = false;
             resultSelectWrapper.classList.remove('is-disabled');
+            customScoreInputWrapper.classList.add('hidden');
         }
     });
 
-    // Listen for changes on the 'arrowsSelect' to grey out 'resultSelect' if 'Miss' is chosen
-    arrowsSelect.addEventListener('change', () => {
-        if (arrowsSelect.value === '0') { // '0' is the value for 'Miss'
+    /**
+     * Handles changes to the 'arrowsSelect' dropdown, controlling visibility and
+     * disabled state of 'resultSelect' and 'customScoreInput'.
+     */
+    function handleArrowsSelectChange() {
+        const selectedArrow = arrowsSelect.value;
+
+        if (selectedArrow === CUSTOM_ARROW_STR) {
+            resultSelectWrapper.classList.add('hidden');
+            customScoreInputWrapper.classList.remove('hidden');
+            customScoreInput.disabled = false; // Ensure custom input is enabled
+            resultSelect.value = ''; // Clear result selection
+        } else if (selectedArrow === MISS_ARROW_STR) {
+            resultSelectWrapper.classList.remove('hidden');
+            customScoreInputWrapper.classList.add('hidden');
             resultSelect.value = ''; // Clear result selection
             resultSelect.disabled = true;
-            resultSelectWrapper.classList.add('is-disabled'); // Add Bulma's disabled class
+            resultSelectWrapper.classList.add('is-disabled');
         } else {
+            resultSelectWrapper.classList.remove('hidden');
+            customScoreInputWrapper.classList.add('hidden');
             resultSelect.disabled = false;
             resultSelectWrapper.classList.remove('is-disabled');
         }
-    });
+    }
+    arrowsSelect.addEventListener('change', handleArrowsSelectChange);
 
 
     // Listen for clicks on the 'Load Data' button (for remote data)
@@ -620,18 +703,44 @@
     // Listen for clicks on the 'Save Target' button
     addBtn.addEventListener('click', () => {
       const target = targetSelect.value;
-      const arrows = arrowsSelect.value === 'Miss' ? '0' : arrowsSelect.value; // Convert 'Miss' to '0'
-      const resultType = resultSelect.value;
+      const selectedArrowOption = arrowsSelect.value;
+      let arrowsValue; // This will hold the numerical arrows value
+      let resultTypeValue; // This will hold the numerical result type value
+
+      // Determine arrowsValue and resultTypeValue based on selected option
+      if (selectedArrowOption === CUSTOM_ARROW_STR) {
+          arrowsValue = parseInt(customScoreInput.value);
+          if (isNaN(arrowsValue) || arrowsValue < 0) {
+              alert('Please enter a valid positive integer for Custom Score.');
+              return;
+          }
+          resultTypeValue = NO_RESULT_CODE; // No result type for custom score
+      } else if (selectedArrowOption === MISS_ARROW_STR) {
+          arrowsValue = 0; // Numerical 0 for Miss
+          resultTypeValue = NO_RESULT_CODE; // No result type for Miss
+      } else {
+          arrowsValue = parseInt(selectedArrowOption); // Standard 10, 8, 5 as numbers
+          resultTypeValue = parseInt(resultSelect.value); // Kill/Wound codes as numbers
+          if (!resultTypeValue) { // Check if result type is selected for non-miss/custom
+              alert('Please select a Result type.');
+              return;
+          }
+      }
+
       const notes = notesInput.value.trim();
 
-      // Basic validation for required fields
-      if (!target || !arrows || (!resultType && arrows !== '0')) { // Result is not required if arrows is 'Miss'
-        alert('Please select Target, Arrows, and Result (unless Miss).');
+      // Basic validation for target
+      if (!target) {
+        alert('Please select a Target.');
         return;
       }
 
       // Update the local 'entries' object for the selected target
-      entries[target] = { arrows: arrows, resultType: resultType, notes: notes };
+      entries[target] = {
+        arrows: arrowsValue,
+        resultType: resultTypeValue,
+        notes: notes
+      };
       saveLocal(); // Save updated entries to local storage
       updateTable(); // Refresh the local score table
 
@@ -645,6 +754,9 @@
 
         // Calculate the total score from current local entries
         const totalScore = Object.values(entries).reduce((sum, entry) => {
+          if (entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) { // Custom score
+              return sum + entry.arrows;
+          }
           // Ensure window.scores, entry.resultType, and entry.arrows exist before accessing
           return sum + (window.scores?.[entry.resultType]?.[entry.arrows] || 0);
         }, 0);
@@ -670,9 +782,11 @@
       arrowsSelect.value = '';
       resultSelect.value = '';
       notesInput.value = '';
-      // Re-enable result select if it was disabled
+      customScoreInput.value = ''; // Clear custom score input
+      // Re-enable result select and hide custom input
       resultSelect.disabled = false;
       resultSelectWrapper.classList.remove('is-disabled');
+      customScoreInputWrapper.classList.add('hidden');
     });
 
     // Listen for clicks on the 'Export CSV' button
@@ -772,9 +886,32 @@
 
         const data = doc.data();
         // Sort the entries by target number for display
-        Object.entries(data.entries || {}).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).forEach(([t, e]) => {
-          const sc = window.scores?.[e.resultType]?.[e.arrows] || 0;
-          html += `<tr><td>${t}</td><td>${e.arrows === '0' ? 'Miss' : e.arrows}</td><td>${e.resultType || ''}</td><td>${sc}</td><td>${e.notes || ''}</td></tr>`;
+        Object.entries(data.entries || {}).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).forEach(([t, entry]) => {
+          let displayArrows = '';
+          let displayResult = '';
+          let score = 0;
+
+          // Determine display values and score based on stored numerical values
+          if (entry.arrows === 0) { // Miss
+              displayArrows = 'Miss';
+              displayResult = '';
+              score = 0;
+          } else if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
+              // This is a custom score
+              displayArrows = entry.arrows.toString(); // Display the custom number
+              displayResult = ''; // No result type for custom
+              score = entry.arrows; // Custom score is the arrow value itself
+          } else if (typeof entry.arrows === 'number' && typeof entry.resultType === 'number') {
+              displayArrows = entry.arrows.toString();
+              displayResult = RESULT_CODES_MAP[entry.resultType] || '';
+              score = window.scores?.[entry.resultType]?.[entry.arrows] || 0;
+          } else { // Fallback for old data or malformed entries
+              displayArrows = entry.arrows || '';
+              displayResult = entry.resultType || '';
+              score = 0;
+          }
+
+          html += `<tr><td>${t}</td><td>${displayArrows}</td><td>${displayResult}</td><td>${score}</td><td>${e.notes || ''}</td></tr>`;
         });
 
         html += `</tbody><tfoot><tr><th colspan="3">Total</th><th>${data.totalScore}</th><th></th></tr></tfoot></table></td>`;
@@ -797,12 +934,9 @@
     loadLocal(); // Load saved preferences and apply them
     updateTable(); // Display any existing local scores
 
-    // Initialize the state of resultSelect based on current arrowsSelect value
-    // This handles cases where 'Miss' might be pre-selected on load (e.g., from local storage)
-    if (arrowsSelect.value === '0') {
-      resultSelect.disabled = true;
-      resultSelectWrapper.classList.add('is-disabled');
-    }
+    // Initialize the state of resultSelect/customScoreInput based on current arrowsSelect value
+    // This handles cases where 'Miss' or 'Custom' might be pre-selected on load (e.g., from local storage)
+    handleArrowsSelectChange();
   });
   </script>
 </body>
