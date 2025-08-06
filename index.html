@@ -203,8 +203,13 @@
         margin-top: 2.2rem !important; /* This value is tuned for visual alignment */
     }
 
-    /* Hide Notes column on mobile */
-    @media (max-width: 768px) { /* Bulma's tablet breakpoint */
+    /* Add horizontal scroll to the local score table only on smaller screens */
+    .table-container {
+        overflow-x: auto;
+    }
+
+    /* Hide Notes column on mobile for the leaderboard only */
+    @media (max-width: 768px) {
       .hide-on-mobile {
         display: none;
       }
@@ -272,11 +277,11 @@
         <!-- Notes Input -->
         <div class="column is-two-thirds">
           <label class="label">Notes</label>
-          <input class="input is-rounded" type="text" id="notesInput" placeholder="(optional, visible on desktop)">
+          <input class="input is-rounded" type="text" id="notesInput" placeholder="Add notes (optional)">
         </div>
         <!-- Save Target Button -->
         <div class="column is-one-third">
-          <button class="button is-success is-rounded is-fullwidth" type="button" id="addBtn">Save Target</button>
+          <button class="button is-success is-rounded is-fullwidth" type="button" id="addBtn">Save</button>
         </div>
         <!-- Reset Button -->
         <div class="column is-one-third">
@@ -285,34 +290,36 @@
         <!-- Show All Targets Toggle -->
         <div class="column is-full">
           <label class="checkbox mt-4">
-            <input type="checkbox" id="showAllToggle" checked> Show all targets (even un-scored)
+            <input type="checkbox" id="showAllToggle" checked> Show all <span id="totalTargetsDisplay">25</span> targets (even un-scored)
           </label>
         </div>
       </div>
     </form>
 
     <!-- Local Score Table -->
-    <table class="table is-striped is-hoverable is-fullwidth score-table">
-      <thead>
-        <tr>
-          <th>#</th> <!-- Changed label to # -->
-          <th>Arrows</th>
-          <th>Result</th>
-          <th>Score</th>
-          <th class="hide-on-mobile">Notes</th> <!-- Hidden on mobile -->
-        </tr>
-      </thead>
-      <tbody id="scoreBody">
-        <!-- Score entries will be dynamically inserted here -->
-      </tbody>
-      <tfoot>
-        <tr>
-          <th colspan="3">Total Score</th> <!-- Fixed colspan to span #, Arrows, Result -->
-          <th id="totalScore">0</th>
-          <th class="hide-on-mobile"></th> <!-- Empty th for Notes column alignment -->
-        </tr>
-      </tfoot>
-    </table>
+    <div class="table-container">
+        <table class="table is-striped is-hoverable is-fullwidth score-table">
+          <thead>
+            <tr>
+              <th>#</th> <!-- Changed label to # -->
+              <th>Arrows</th>
+              <th>Result</th>
+              <th>Score</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="scoreBody">
+            <!-- Score entries will be dynamically inserted here -->
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colspan="3">Total Score</th> <!-- Fixed colspan to span #, Arrows, Result -->
+              <th id="totalScore">0</th>
+              <th></th> <!-- Empty th for Notes column alignment -->
+            </tr>
+          </tfoot>
+        </table>
+    </div>
 
     <!-- Leaderboard Section -->
     <div id="leaderboardSection" class="hidden"> <!-- Added wrapper div for the whole section -->
@@ -323,12 +330,14 @@
         </div>
         <button class="button is-primary is-rounded ml-auto" id="refreshLeaderboard">Refresh Leaderboard</button>
       </div>
-      <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
-        <thead><tr><th>Name</th><th>Date</th><th>Total Score</th></tr></thead>
-        <tbody>
-          <!-- Leaderboard entries will be dynamically inserted here -->
-        </tbody>
-      </table>
+      <div class="table-container">
+        <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
+          <thead><tr><th>Name</th><th>Date</th><th class="hide-on-mobile">Total Score</th></tr></thead>
+          <tbody>
+            <!-- Leaderboard entries will be dynamically inserted here -->
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -365,7 +374,6 @@
     const totalTargetsDisplay = document.getElementById('totalTargetsDisplay'); // Element to display total targets
     const scoreBody = document.getElementById('scoreBody');
     const totalScoreEl = document.getElementById('totalScore');
-    // const totalScoreLabel = document.getElementById('totalScoreLabel'); // Removed as colspan is fixed in HTML
     const leaderboardSection = document.getElementById('leaderboardSection'); // Reference for the whole leaderboard section
     const monthSelect = document.getElementById('monthSelect'); // New month select dropdown
     const refreshLb = document.getElementById('refreshLeaderboard');
@@ -400,6 +408,7 @@
 
     // Get total targets from scores.js, default to 25 if not defined
     const TOTAL_TARGETS = window.scores?.TOTAL_TARGETS || 25;
+    totalTargetsDisplay.textContent = TOTAL_TARGETS; // Update display in HTML
 
     // --- Utility Functions ---
 
@@ -544,7 +553,7 @@
           <td>${displayArrows}</td>
           <td>${displayResult}</td>
           <td>${score}</td>
-          <td class="hide-on-mobile">${entry.notes || ''}</td> <!-- Hidden on mobile -->
+          <td>${entry.notes || ''}</td>
         `;
         scoreBody.appendChild(tr); // Append the row to the table body
       });
@@ -701,7 +710,7 @@
             tr.innerHTML = `
                 <td>${data.name}</td>
                 <td>${formattedDate}, ${formattedTime}</td>
-                <td>${data.totalScore}</td>
+                <td class="hide-on-mobile">${data.totalScore}</td>
             `;
             lbBody.appendChild(tr);
         });
@@ -938,11 +947,8 @@
 
     // Listen for clicks on the 'Export CSV' button
     exportCSV.addEventListener('click', () => {
-      // Determine headers based on mobile view
-      const header = ['Target', 'Arrows', 'Result', 'Score'];
-      if (!isMobile()) {
-        header.push('Notes');
-      }
+      // Headers will now always include Notes
+      const header = ['Target', 'Arrows', 'Result', 'Score', 'Notes'];
 
       // Map table rows to CSV format, ensuring content is quoted for safety
       const rows = Array.from(scoreBody.rows).map(row => {
@@ -951,11 +957,9 @@
           `"${cells[0].textContent.replace(/"/g, '""')}"`, // Target
           `"${cells[1].textContent.replace(/"/g, '""')}"`, // Arrows
           `"${cells[2].textContent.replace(/"/g, '""')}"`, // Result
-          `"${cells[3].textContent.replace(/"/g, '""')}"`  // Score
+          `"${cells[3].textContent.replace(/"/g, '""')}"`,  // Score
+          `"${cells[4].textContent.replace(/"/g, '""')}"`  // Notes
         ];
-        if (!isMobile()) {
-          rowData.push(`"${cells[4].textContent.replace(/"/g, '""')}"`); // Notes
-        }
         return rowData.join(',');
       });
 
