@@ -240,9 +240,6 @@
         <div class="control is-expanded">
           <input class="input is-rounded" type="text" id="archerName" placeholder="Your Name">
         </div>
-        <div class="control">
-          <button class="button is-link is-rounded" id="loadDataBtn">Load</button>
-        </div>
       </div>
       <button class="button is-info is-rounded ml-auto" id="exportCSV">Export CSV</button>
     </div>
@@ -333,7 +330,7 @@
       <div class="table-container">
         <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
           <thead><tr><th>Name</th><th>Date</th><th class="hide-on-mobile">Total Score</th></tr></thead>
-          <tbody>
+          <tbody id="leaderboardBody">
             <!-- Leaderboard entries will be dynamically inserted here -->
           </tbody>
         </table>
@@ -359,7 +356,6 @@
     const remoteToggle = document.getElementById('remoteToggle');
     const nameContainer = document.getElementById('nameContainer');
     const archerName = document.getElementById('archerName');
-    const loadDataBtn = document.getElementById('loadDataBtn');
     const exportCSV = document.getElementById('exportCSV');
     const targetSelect = document.getElementById('targetSelect');
     const arrowsSelect = document.getElementById('arrowsSelect');
@@ -377,7 +373,7 @@
     const leaderboardSection = document.getElementById('leaderboardSection'); // Reference for the whole leaderboard section
     const monthSelect = document.getElementById('monthSelect'); // New month select dropdown
     const refreshLb = document.getElementById('refreshLeaderboard');
-    const lbBody = document.querySelector('#leaderboardTable tbody');
+    const leaderboardBody = document.getElementById('leaderboardBody'); // Reference for the leaderboard table body
     const scoreForm = document.getElementById('scoreForm'); // Reference to the score form for scrolling
 
     // Modal elements
@@ -398,20 +394,17 @@
     const KILL_CODE = 1;
     const WOUND_CODE = 2;
     const NO_RESULT_CODE = 0; // For Miss or Custom scores
-
     // Reverse mapping for displaying result types
-    const RESULT_CODES_MAP = {
-      [KILL_CODE]: 'Kill',
-      [WOUND_CODE]: 'Wound',
-      [NO_RESULT_CODE]: '' // For Miss or Custom, no specific result type
+    const RESULT_CODES_MAP = { [KILL_CODE]: 'Kill', [WOUND_CODE]: 'Wound', [NO_RESULT_CODE]: '' // For Miss or Custom, no specific result type
     };
-
     // Get total targets from scores.js, default to 25 if not defined
     const TOTAL_TARGETS = window.scores?.TOTAL_TARGETS || 25;
     totalTargetsDisplay.textContent = TOTAL_TARGETS; // Update display in HTML
+    
+    // Define a collection name
+    const LEADERBOARD_COLLECTION = 'leaderboard_v2'; // Using a new collection name to avoid conflicts
 
     // --- Utility Functions ---
-
     /**
      * Capitalizes the first letter of a string and trims whitespace.
      * @param {string} str - The input string.
@@ -453,702 +446,452 @@
         if (window.scores[WOUND_CODE]) {
           Object.keys(window.scores[WOUND_CODE]).forEach(k => arrowValues.add(parseInt(k)));
         }
-        
         // Add standard arrow options, sorted in ascending order (1, 2, 3)
-        Array.from(arrowValues).sort((a,b) => a-b).forEach(val => { // Changed sort order to a-b
-            if (val !== 0) { // '0' is handled as 'Miss' explicitly
-                arrowsSelect.add(new Option(val.toString(), val.toString()));
-            }
+        Array.from(arrowValues).sort((a,b) => b-a).forEach(val => { // Changed sort order to b-a
+          if (val !== 0) { // '0' is handled as 'Miss' explicitly
+            arrowsSelect.add(new Option(val.toString(), val.toString()));
+          }
         });
         arrowsSelect.add(new Option('Miss', MISS_ARROW_STR)); // Add Miss explicitly
+        arrowsSelect.add(new Option('Custom Score', CUSTOM_ARROW_STR)); // Add Custom Score explicitly
       } else {
         console.error("window.scores is not defined or missing numerical keys. Check scores.js.");
         // Fallback options if scores.js isn't loaded correctly or malformed
-        arrowsSelect.add(new Option('1', '1')); // Changed fallback to 1, 2, 3
-        arrowsSelect.add(new Option('2', '2'));
-        arrowsSelect.add(new Option('3', '3'));
         arrowsSelect.add(new Option('Miss', MISS_ARROW_STR));
+        arrowsSelect.add(new Option('Custom Score', CUSTOM_ARROW_STR));
       }
-      arrowsSelect.add(new Option('Custom', CUSTOM_ARROW_STR)); // Add Custom option
 
-
-      // Populate Result dropdown (Kill, Wound)
+      // Populate Result dropdown (Kill/Wound)
       resultSelect.innerHTML = '<option value="">Select Result...</option>';
-      resultSelect.add(new Option(RESULT_CODES_MAP[KILL_CODE], KILL_CODE));
-      resultSelect.add(new Option(RESULT_CODES_MAP[WOUND_CODE], WOUND_CODE));
+      resultSelect.add(new Option('Kill', KILL_CODE));
+      resultSelect.add(new Option('Wound', WOUND_CODE));
     }
 
     /**
-     * Saves the current state of 'entries', 'archerName', 'showAll', and 'useRemote' to local storage.
+     * Calculates the total score from the `entries` object.
+     * @returns {number} The total score.
+     */
+    function calculateTotalScore() {
+      let total = 0;
+      for (const target in entries) {
+        const entry = entries[target];
+        if (entry.resultType === KILL_CODE || entry.resultType === WOUND_CODE) {
+          total += window.scores[entry.resultType][entry.arrows];
+        } else if (entry.arrows !== MISS_ARROW_STR) {
+          // This is a custom score
+          total += parseInt(entry.arrows, 10);
+        }
+      }
+      return total;
+    }
+
+    /**
+     * Saves the current `entries` object to local storage.
      */
     function saveLocal() {
       localStorage.setItem('entries', JSON.stringify(entries));
-      localStorage.setItem('archerName', archerName.value);
-      localStorage.setItem('showAll', showAllToggle.checked);
-      localStorage.setItem('useRemote', remoteToggle.checked);
     }
 
     /**
-     * Loads saved preferences from local storage and applies them to the UI.
+     * Loads `entries` from local storage.
      */
     function loadLocal() {
-      archerName.value = localStorage.getItem('archerName') || '';
-      // Convert string 'false' back to boolean false, otherwise true
-      showAllToggle.checked = localStorage.getItem('showAll') !== 'false';
-      remoteToggle.checked = localStorage.getItem('useRemote') === 'true';
-      toggleRemote(); // Apply the remote toggle state based on loaded value
-      updateTable(); // Update the score table based on loaded entries
+      const storedEntries = localStorage.getItem('entries');
+      if (storedEntries) {
+        entries = JSON.parse(storedEntries);
+      }
     }
 
     /**
-     * Updates the local score table based on the 'entries' object and 'showAllToggle' state.
+     * Updates the local score table with data from the `entries` object.
      */
     function updateTable() {
-      scoreBody.innerHTML = ''; // Clear existing table rows
+      scoreBody.innerHTML = ''; // Clear the table body
       let total = 0;
+      let targetsScored = Object.keys(entries).map(Number);
+      let allTargets = [];
 
-      // Determine which entries to display based on 'showAllToggle'
-      const listToDisplay = showAllToggle.checked
-        ? Array.from({ length: TOTAL_TARGETS }, (_, i) => ({ target: i + 1, ...entries[i + 1] })) // All TOTAL_TARGETS targets
-        : Object.entries(entries).map(([t, e]) => ({ target: parseInt(t), ...e })); // Only scored targets
+      for (let i = 1; i <= TOTAL_TARGETS; i++) {
+        allTargets.push(i);
+      }
 
-      // Sort entries numerically by target ID
-      listToDisplay.sort((a, b) => a.target - b.target).forEach(entry => {
-        let displayArrows = '';
-        let displayResult = '';
-        let score = 0;
+      const targetsToDisplay = showAllToggle.checked ? allTargets : targetsScored;
 
-        // Determine display values and score based on stored numerical values
-        if (entry.arrows === 0) { // Miss (numerical 0)
-            displayArrows = 'Miss';
-            displayResult = '';
+      targetsToDisplay.forEach(target => {
+        const entry = entries[target] || {};
+        const isMissed = entry.arrows === MISS_ARROW_STR;
+        const resultType = entry.resultType;
+        let score = '';
+
+        if (entry.arrows) {
+          if (isMissed) {
             score = 0;
-        } else if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
-            // This is a custom score (numerical arrows, resultType 0, arrows not 0)
-            displayArrows = 'Custom'; // Display 'Custom' in Arrows column
-            displayResult = ''; // No result type for custom
-            score = entry.arrows; // Custom score is the arrow value itself
-        } else if (typeof entry.arrows === 'number' && typeof entry.resultType === 'number') {
-            // Standard Kill/Wound scores (numerical arrows and resultType)
-            displayArrows = entry.arrows.toString();
-            displayResult = RESULT_CODES_MAP[entry.resultType] || '';
-            score = window.scores?.[entry.resultType]?.[entry.arrows] || 0;
-        } else { // Fallback for undefined or malformed entries (e.g., old string data)
-            displayArrows = entry.arrows || '';
-            displayResult = entry.resultType || '';
-            score = 0; // Default score
-            console.warn("Unexpected entry format encountered:", entry);
+          } else if (resultType === KILL_CODE || resultType === WOUND_CODE) {
+            score = window.scores[resultType][entry.arrows];
+          } else {
+            // Custom score
+            score = entry.arrows;
+          }
         }
+        total += parseInt(score || 0, 10);
 
-        total += score; // Accumulate total score
-
-        const tr = document.createElement('tr'); // Create a new table row
-        if (entry.arrows === 0) { // Check for numerical 0 for Miss
-          tr.classList.add('missed'); // Add 'missed' class if arrows hit is '0'
+        const row = document.createElement('tr');
+        if (!entry.arrows) {
+            row.classList.add('missed');
         }
-
-        // Populate the row with data. Use empty string if data is undefined for display.
-        tr.innerHTML = `
-          <td>${entry.target || ''}</td>
-          <td>${displayArrows}</td>
-          <td>${displayResult}</td>
+        
+        row.dataset.target = target;
+        row.dataset.docId = entry.docId || ''; // Add docId to the row for later use
+        
+        row.innerHTML = `
+          <td>${target}</td>
+          <td>${isMissed ? 'Miss' : (entry.arrows || '')}</td>
+          <td>${RESULT_CODES_MAP[resultType] || ''}</td>
           <td>${score}</td>
           <td>${entry.notes || ''}</td>
         `;
-        scoreBody.appendChild(tr); // Append the row to the table body
+        scoreBody.appendChild(row);
       });
 
-      totalScoreEl.textContent = total; // Update the displayed total score
+      totalScoreEl.textContent = total;
     }
 
     /**
-     * Initializes Firebase Firestore if it hasn't been initialized yet and
-     * the Firebase environment configuration (window._env_) is available.
+     * Disables or enables the result select and custom score input based on the arrows select value.
+     */
+    function handleArrowsSelectChange() {
+      const selectedValue = arrowsSelect.value;
+      const isMissOrCustom = selectedValue === MISS_ARROW_STR || selectedValue === CUSTOM_ARROW_STR;
+
+      if (selectedValue === CUSTOM_ARROW_STR) {
+        resultSelectWrapper.classList.add('hidden');
+        customScoreInputWrapper.classList.remove('hidden');
+      } else {
+        resultSelectWrapper.classList.remove('hidden');
+        customScoreInputWrapper.classList.add('hidden');
+      }
+
+      if (isMissOrCustom) {
+        // Disable resultSelect if Miss or Custom is selected
+        resultSelect.disabled = true;
+      } else {
+        // Enable resultSelect otherwise
+        resultSelect.disabled = false;
+      }
+    }
+
+    /**
+     * Toggles the visibility of the name input field and the leaderboard section.
+     * @param {boolean} isRemote - Whether to show remote controls.
+     */
+    function toggleRemote(isRemote) {
+      if (isRemote) {
+        nameContainer.classList.remove('hidden');
+        leaderboardSection.classList.remove('hidden');
+        if (!firestoreInitialized) {
+          initFirestore();
+        } else {
+          fetchLeaderboard();
+        }
+      } else {
+        nameContainer.classList.add('hidden');
+        leaderboardSection.classList.add('hidden');
+      }
+    }
+
+    /**
+     * Initializes Firestore.
      */
     function initFirestore() {
-      if (!firestoreInitialized) {
-        if (window._env_) {
-          try {
-            firebase.initializeApp(window._env_); // Initialize Firebase app
-            db = firebase.firestore(); // Get Firestore instance
-            firestoreInitialized = true; // Set flag to true
-            console.log("Firebase Firestore initialized successfully.");
-          } catch (error) {
-            console.error("Error initializing Firebase Firestore:", error);
-            // In a real app, you might show a more user-friendly error message here
-          }
-        } else {
-          console.warn("Firebase environment configuration (window._env_) not found. Firestore cannot be initialized.");
+        if (!firestoreInitialized && window._env_ && window.firebase) {
+            firebase.initializeApp(window._env_);
+            db = firebase.firestore();
+            firestoreInitialized = true;
+            console.log("Firestore initialized.");
+            fetchLeaderboard(); // Initial fetch
+        } else if (!window.firebase) {
+            console.error("Firebase SDK not loaded. Check script tags.");
+        } else if (!window._env_) {
+            console.error("Environment variables for Firebase not found. Check env.js.");
         }
-      }
-      // Always attempt to fetch leaderboard after init (or if already inited)
-      if (firestoreInitialized) {
-        fetchAllLeaderboardData(); // Fetch all data first
-      }
     }
 
     /**
-     * Fetches ALL leaderboard data from Firestore and stores it.
-     * Then initializes the month select and displays the default leaderboard.
+     * Fetches all leaderboard data and displays it.
      */
-    async function fetchAllLeaderboardData() {
-      lbBody.innerHTML = '<tr><td colspan="3">Loading leaderboard...</td></tr>'; // Loading indicator
+    function fetchLeaderboard() {
       if (!db) {
-        lbBody.innerHTML = '<tr><td colspan="3">Firestore not initialized.</td></tr>';
-        console.warn("Firestore not initialized. Cannot fetch leaderboard.");
+        console.error("Firestore not initialized.");
         return;
       }
 
-      try {
-        const snapshot = await db.collection('leaderboard')
-          .orderBy('date', 'desc') // Order by date to easily get unique months
-          .get();
-
-        allLeaderboardData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        initLeaderboardMonthSelect(); // Populate month dropdown based on fetched data
-        
-        // Set default filter to current month
-        const today = new Date();
-        const currentMonthValue = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}`;
-        monthSelect.value = currentMonthValue; // Set the dropdown to current month
-        displayLeaderboard(currentMonthValue); // Display current month by default
-
-      } catch (error) {
-        console.error("Error fetching all leaderboard data:", error);
-        lbBody.innerHTML = `<tr><td colspan="3">Error loading leaderboard.</td>`;
-        allLeaderboardData = []; // Clear data on error
+      // Use a timestamp to query for documents in the selected month
+      // This is a simple approach. A more robust solution might use a dedicated 'month' field
+      // to avoid complex date range queries, which can be slow and require composite indexes.
+      const selectedMonth = monthSelect.value;
+      let monthStartDate, monthEndDate;
+      if (selectedMonth) {
+          const [year, month] = selectedMonth.split('-');
+          monthStartDate = new Date(year, parseInt(month) - 1, 1);
+          monthEndDate = new Date(year, parseInt(month), 0);
+          monthEndDate.setHours(23, 59, 59, 999);
       }
-    }
+      
+      const leaderboardRef = db.collection(LEADERBOARD_COLLECTION);
+      
+      let queryRef = leaderboardRef;
 
-    /**
-     * Populates the month selection dropdown based on available data dates.
-     */
-    function initLeaderboardMonthSelect() {
-        monthSelect.innerHTML = ''; // Clear existing options
+      // Note: Ordering by 'totalScore' on the server-side can be problematic without an index.
+      // We will fetch all data and sort it client-side to avoid this issue.
+      
+      // Clear previous snapshot listener if one exists
+      if (window.leaderboardUnsubscribe) {
+        window.leaderboardUnsubscribe();
+      }
 
-        // Add default options
-        monthSelect.add(new Option('Total Leaderboard', 'total'));
+      window.leaderboardUnsubscribe = queryRef.onSnapshot(snapshot => {
+        allLeaderboardData = [];
+        snapshot.forEach(doc => {
+          allLeaderboardData.push({ id: doc.id, ...doc.data() });
+        });
         
-        const today = new Date();
-        const currentMonthValue = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}`;
-        monthSelect.add(new Option('Current Month', currentMonthValue));
-
-        const uniqueMonths = new Set();
-        allLeaderboardData.forEach(data => {
-            if (data.date) {
-                const entryDate = new Date(data.date);
-                const monthYear = `${entryDate.getFullYear()}-${(entryDate.getMonth() + 1).toString().padStart(2, '0')}`;
-                uniqueMonths.add(monthYear);
-            }
+        // Client-side filtering and sorting
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const currentMonthString = `${year}-${String(month).padStart(2, '0')}`;
+        
+        const filteredData = allLeaderboardData.filter(d => {
+            const date = new Date(d.date);
+            const entryMonthString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            // If no month is selected, show current month by default.
+            return selectedMonth ? entryMonthString === selectedMonth : entryMonthString === currentMonthString;
+        });
+        
+        // Sort by totalScore descending, then by date descending
+        filteredData.sort((a, b) => {
+          if (b.totalScore !== a.totalScore) {
+            return b.totalScore - a.totalScore;
+          }
+          return new Date(b.date) - new Date(a.date);
         });
 
-        // Add past months, sorted
-        Array.from(uniqueMonths)
-            .sort((a, b) => b.localeCompare(a)) // Sort in descending order (newest first)
-            .forEach(monthYear => {
-                if (monthYear !== currentMonthValue) { // Avoid duplicating 'Current Month'
-                    const [year, month] = monthYear.split('-');
-                    const monthName = new Date(year, parseInt(month) - 1, 1).toLocaleString('en-US', { month: 'long' });
-                    monthSelect.add(new Option(`${monthName} ${year}`, monthYear));
-                }
-            });
+        renderLeaderboard(filteredData);
+      }, err => {
+        console.error("Error fetching leaderboard: ", err);
+      });
     }
-
-
-    /**
-     * Displays the leaderboard data, filtered by the given month.
-     * @param {string} filter - 'total' for all data, or 'YYYY-MM' for a specific month.
-     */
-    function displayLeaderboard(filter) {
-        lbBody.innerHTML = ''; // Clear existing entries
-        let filteredData = [];
-
-        // Remove any existing preview row
-        const existingPreview = document.querySelector('.preview-row');
-        if (existingPreview) {
-            existingPreview.remove();
-        }
-
-        if (filter === 'total') {
-            filteredData = allLeaderboardData;
-        } else {
-            // Filter by month (YYYY-MM)
-            filteredData = allLeaderboardData.filter(data => {
-                if (data.date) {
-                    const entryDate = new Date(data.date);
-                    const monthYear = `${entryDate.getFullYear()}-${(entryDate.getMonth() + 1).toString().padStart(2, '0')}`;
-                    return monthYear === filter;
-                }
-                return false;
-            });
-        }
-
-        if (filteredData.length === 0) {
-            lbBody.insertAdjacentHTML('beforeend', `<tr><td colspan="3">No leaderboard data for this period.</td></tr>`);
+    
+    function renderLeaderboard(data) {
+        leaderboardBody.innerHTML = '';
+        if (data.length === 0) {
+            leaderboardBody.innerHTML = '<tr><td colspan="3">No scores available for this month.</td></tr>';
             return;
         }
 
-        // Sort filtered data by totalScore descending
-        filteredData.sort((a, b) => b.totalScore - a.totalScore).forEach(data => {
-            const dateObj = new Date(data.date);
-            // Format date to DD-MM-YYYY
-            const formattedDate = dateObj.toLocaleDateString('nl-NL', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric'
-            });
-            // Format time to HH:MM (24-hour)
-            const formattedTime = dateObj.toLocaleTimeString('nl-NL', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            });
+        data.forEach(entry => {
+            const date = new Date(entry.date);
+            const dateString = date.toLocaleDateString();
+            const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-            const tr = document.createElement('tr');
-            tr.dataset.name = data.name; // Store name in dataset for click event
-            tr.innerHTML = `
-                <td>${data.name}</td>
-                <td>${formattedDate}, ${formattedTime}</td>
-                <td class="hide-on-mobile">${data.totalScore}</td>
+            const row = document.createElement('tr');
+            row.dataset.docId = entry.id; // Store Firestore doc ID
+            row.innerHTML = `
+                <td>${entry.name}</td>
+                <td>${dateString} <br> ${timeString}</td>
+                <td>${entry.totalScore}</td>
             `;
-            lbBody.appendChild(tr);
+            leaderboardBody.appendChild(row);
         });
     }
 
-
     /**
-     * Toggles the visibility of remote-related UI elements (name input, leaderboard section).
-     * This function is called when the remoteToggle checkbox changes.
+     * Populates the month select dropdown with options for the current and previous 12 months.
      */
-    function toggleRemote() {
-      const on = remoteToggle.checked;
-      nameContainer.classList.toggle('hidden', !on); // Show/hide name input container
-      leaderboardSection.classList.toggle('hidden', !on); // Show/hide the entire leaderboard section
-      saveLocal(); // Save the current state of the 'useRemote' checkbox
+    function populateMonthSelect() {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      
+      monthSelect.innerHTML = '';
 
-      if (on) {
-        initFirestore(); // Initialize Firestore if remote is enabled
+      // Add a 'Current Month' option
+      const currentMonthOption = document.createElement('option');
+      currentMonthOption.value = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+      currentMonthOption.textContent = `Current Month (${months[currentMonth]} ${currentYear})`;
+      monthSelect.appendChild(currentMonthOption);
+
+      // Add previous months
+      for (let i = 1; i <= 12; i++) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        const value = `${year}-${String(month + 1).padStart(2, '0')}`;
+        const text = `${months[month]} ${year}`;
+        const option = new Option(text, value);
+        monthSelect.add(option);
       }
     }
-
-    // --- Custom Confirmation Modal Logic ---
+    
     /**
-     * Shows the custom confirmation modal.
+     * Loads a specific entry from the leaderboard into the local score tracker.
+     * @param {string} docId - The Firestore document ID to load.
      */
-    function showConfirmationModal() {
-        confirmationModal.style.display = 'flex'; // Use flex to center content
-    }
-
-    /**
-     * Hides the custom confirmation modal.
-     */
-    function hideConfirmationModal() {
-        confirmationModal.style.display = 'none';
+    async function loadFromRemote(docId) {
+        if (!db) {
+            console.error("Firestore not initialized.");
+            return;
+        }
+        try {
+            const doc = await db.collection(LEADERBOARD_COLLECTION).doc(docId).get();
+            if (doc.exists) {
+                const data = doc.data();
+                entries = data.entries;
+                // Since this is a new remote entry, we save it locally for now.
+                // You could add a docId field to the local entries if you want to track it.
+                saveLocal();
+                updateTable();
+                
+                // Set the archer's name input field
+                archerName.value = data.name;
+                
+                // Scroll to the local score table
+                scoreBody.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                console.error("Document not found.");
+            }
+        } catch (e) {
+            console.error("Error loading document: ", e);
+        }
     }
 
     // --- Event Listeners ---
+    remoteToggle.addEventListener('change', () => toggleRemote(remoteToggle.checked));
+    
+    monthSelect.addEventListener('change', () => fetchLeaderboard());
+    
+    refreshLb.addEventListener('click', () => fetchLeaderboard());
 
-    // Listen for changes on the 'remoteToggle' checkbox
-    remoteToggle.addEventListener('change', toggleRemote);
+    addBtn.addEventListener('click', async () => {
+      const t = targetSelect.value,
+        a = arrowsSelect.value;
+      if (!t || !a) return;
 
-    // Listen for changes on the 'showAllToggle' checkbox
-    showAllToggle.addEventListener('change', () => {
-      saveLocal(); // Save the state
-      updateTable(); // Refresh table display
-    });
-
-    // Listen for changes on the 'targetSelect' to pre-fill form
-    targetSelect.addEventListener('change', () => {
-        const selectedTarget = targetSelect.value;
-        if (selectedTarget && entries[selectedTarget]) {
-            // If data exists for the selected target, pre-fill the form fields
-            const entry = entries[selectedTarget];
-
-            // Handle arrows pre-fill, including 'Custom'
-            if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
-                // This is a custom score (stored as a number, resultType 0, and not 0 itself)
-                arrowsSelect.value = CUSTOM_ARROW_STR;
-                customScoreInput.value = entry.arrows;
-            } else if (entry.arrows === 0) { // Miss (numerical 0)
-                arrowsSelect.value = MISS_ARROW_STR;
-            } else {
-                arrowsSelect.value = entry.arrows.toString(); // Standard numerical arrows (1, 2, 3)
-            }
-
-            resultSelect.value = entry.resultType; // This will be the numerical code (1, 2, or 0)
-            notesInput.value = entry.notes;
-
-            // Update visibility and disabled state based on pre-filled arrows
-            handleArrowsSelectChange(); // Call the handler directly
-        } else {
-            // If no data or no target selected, clear the form fields
-            arrowsSelect.value = '';
-            resultSelect.value = '';
-            notesInput.value = '';
-            customScoreInput.value = ''; // Clear custom score input
-            // Ensure resultSelect is enabled and custom input is hidden
-            resultSelect.disabled = false;
-            resultSelectWrapper.classList.remove('is-disabled');
-            customScoreInputWrapper.classList.add('hidden');
-        }
-    });
-
-    /**
-     * Handles changes to the 'arrowsSelect' dropdown, controlling visibility and
-     * disabled state of 'resultSelect' and 'customScoreInput'.
-     */
-    function handleArrowsSelectChange() {
-        const selectedArrow = arrowsSelect.value;
-
-        if (selectedArrow === CUSTOM_ARROW_STR) {
-            resultSelectWrapper.classList.add('hidden'); // Hide standard result dropdown
-            customScoreInputWrapper.classList.remove('hidden'); // Show custom score input
-            customScoreInput.disabled = false; // Ensure custom input is enabled
-            resultSelect.value = ''; // Clear result selection
-        } else if (selectedArrow === MISS_ARROW_STR) {
-            resultSelectWrapper.classList.remove('hidden'); // Show standard result dropdown
-            customScoreInputWrapper.classList.add('hidden'); // Hide custom score input
-            resultSelect.value = ''; // Clear result selection
-            resultSelect.disabled = true; // Disable result dropdown
-            resultSelectWrapper.classList.add('is-disabled'); // Add Bulma's disabled class for styling
-        } else {
-            resultSelectWrapper.classList.remove('hidden'); // Show standard result dropdown
-            customScoreInputWrapper.classList.add('hidden'); // Hide custom score input
-            resultSelect.disabled = false; // Enable result dropdown
-            resultSelectWrapper.classList.remove('is-disabled'); // Remove Bulma's disabled class
-        }
-    }
-    arrowsSelect.addEventListener('change', handleArrowsSelectChange);
-
-
-    // Listen for clicks on the 'Load Data' button (for remote data)
-    loadDataBtn.addEventListener('click', async () => {
-      let name = archerName.value;
-      if (!name) {
-        alert('Please enter your name to load data.'); // Basic validation
-        return;
-      }
-      name = formatName(name); // Format the name
-      archerName.value = name; // Update the input field with formatted name
-
-      if (!firestoreInitialized) {
-        alert('Firebase is not initialized. Cannot load remote data.');
-        return;
-      }
-
-      try {
-        const doc = await db.collection('leaderboard').doc(name).get();
-        if (doc.exists) {
-          entries = doc.data().entries || {}; // Load specific archer's entries
-          saveLocal(); // Save loaded entries to local storage
-          updateTable(); // Refresh local score table
-          alert(`Data for ${name} loaded successfully!`);
-        } else {
-          alert(`No data found for ${name}.`);
-        }
-      }
-      catch (error) {
-        console.error("Error loading remote data:", error);
-        alert("Failed to load remote data. Check console for details.");
-      }
-    });
-
-    // Listen for clicks on the 'Save Target' button
-    addBtn.addEventListener('click', () => {
-      const target = targetSelect.value;
-      const selectedArrowOption = arrowsSelect.value;
-      let arrowsValue; // This will hold the numerical arrows value to be stored
-      let resultTypeValue; // This will hold the numerical result type value to be stored
-
-      // Determine arrowsValue and resultTypeValue based on selected option
-      if (selectedArrowOption === CUSTOM_ARROW_STR) {
-          arrowsValue = parseInt(customScoreInput.value);
-          if (isNaN(arrowsValue) || arrowsValue < 0) {
-              alert('Please enter a valid non-negative integer for Custom Score.');
-              return;
-          }
-          resultTypeValue = NO_RESULT_CODE; // Custom score has no standard result type
-      } else if (selectedArrowOption === MISS_ARROW_STR) {
-          arrowsValue = 0; // Numerical 0 for Miss
-          resultTypeValue = NO_RESULT_CODE; // Miss has no standard result type
-      } else {
-          arrowsValue = parseInt(selectedArrowOption); // Standard 1, 2, 3 as numbers
-          resultTypeValue = parseInt(resultSelect.value); // Kill/Wound codes as numbers
-          if (isNaN(arrowsValue) || !resultTypeValue) { // Check if valid numbers and result type selected
-              alert('Please select valid Arrows and a Result type.');
-              return;
-          }
-      }
-
-      const notes = notesInput.value.trim();
-
-      // Basic validation for target
-      if (!target) {
-        alert('Please select a Target.');
-        return;
-      }
-
-      // Update the local 'entries' object for the selected target
-      entries[target] = {
-        arrows: arrowsValue,
-        resultType: resultTypeValue,
-        notes: notes
-      };
-      saveLocal(); // Save updated entries to local storage
-      updateTable(); // Refresh the local score table
-
-      // If remote is enabled and Firestore is initialized, update the remote leaderboard
-      if (remoteToggle.checked && firestoreInitialized) {
-        let name = archerName.value;
-        if (!name) {
-          alert('Please enter your name to save to remote leaderboard.');
+      const name = formatName(archerName.value);
+      if (remoteToggle.checked && !name) {
+          alert("Please enter your name to save to the leaderboard.");
           return;
-        }
-        name = formatName(name); // Format the name
-        archerName.value = name; // Update the input field with formatted name
-
-        // Calculate the total score from current local entries
-        const totalScore = Object.values(entries).reduce((sum, entry) => {
-          if (entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) { // Custom score
-              return sum + entry.arrows; // Custom score is its own value
-          }
-          // For standard scores, use the scores.js mapping
-          return sum + (window.scores?.[entry.resultType]?.[entry.arrows] || 0);
-        }, 0);
-
-        // Set the document in the 'leaderboard' collection.
-        // Using set() with a specific doc ID (archer name) will create or overwrite it.
-        db.collection('leaderboard').doc(name).set({
-          name: name,
-          totalScore: totalScore,
-          date: new Date().toISOString(), // Store date in ISO format for consistent sorting
-          entries: entries // Store all entries for detailed view
-        }).then(() => {
-          console.log("Remote score updated successfully!");
-          fetchAllLeaderboardData(); // Re-fetch all data to update month options and display
-        }).catch(error => {
-          console.error("Error updating remote score:", error);
-          alert("Failed to update remote score. Check console for details.");
-        });
       }
+      
+      const selectedResult = resultSelect.disabled ? NO_RESULT_CODE : parseInt(resultSelect.value);
+      const score = a === CUSTOM_ARROW_STR ? parseInt(customScoreInput.value) : parseInt(a);
 
-      // Clear input fields after successful addition/update
+      entries[t] = {
+        arrows: a === CUSTOM_ARROW_STR ? score : a,
+        resultType: selectedResult,
+        notes: notesInput.value,
+      };
+      
+      saveLocal();
+      updateTable();
+
+      // Save to Firestore with a new unique document ID
+      if (remoteToggle.checked && firestoreInitialized) {
+        try {
+          const totalScore = calculateTotalScore();
+          const newDoc = {
+            name: name,
+            totalScore: totalScore,
+            date: new Date().toISOString(),
+            entries: entries,
+          };
+          await db.collection(LEADERBOARD_COLLECTION).add(newDoc);
+          console.log("Score saved to leaderboard.");
+        } catch (e) {
+          console.error("Error saving to leaderboard: ", e);
+        }
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      confirmationModal.style.display = 'flex';
+    });
+
+    confirmResetYes.addEventListener('click', () => {
+      localStorage.removeItem('entries');
+      entries = {};
+      updateTable();
+      confirmationModal.style.display = 'none';
       targetSelect.value = '';
       arrowsSelect.value = '';
       resultSelect.value = '';
       notesInput.value = '';
-      customScoreInput.value = ''; // Clear custom score input
-      // Reset form controls to default state
-      resultSelect.disabled = false;
-      resultSelectWrapper.classList.remove('is-disabled');
-      customScoreInputWrapper.classList.add('hidden');
-    });
-
-    // Listen for clicks on the 'Export CSV' button
-    exportCSV.addEventListener('click', () => {
-      // Headers will now always include Notes
-      const header = ['Target', 'Arrows', 'Result', 'Score', 'Notes'];
-
-      // Map table rows to CSV format, ensuring content is quoted for safety
-      const rows = Array.from(scoreBody.rows).map(row => {
-        const cells = Array.from(row.cells);
-        let rowData = [
-          `"${cells[0].textContent.replace(/"/g, '""')}"`, // Target
-          `"${cells[1].textContent.replace(/"/g, '""')}"`, // Arrows
-          `"${cells[2].textContent.replace(/"/g, '""')}"`, // Result
-          `"${cells[3].textContent.replace(/"/g, '""')}"`,  // Score
-          `"${cells[4].textContent.replace(/"/g, '""')}"`  // Notes
-        ];
-        return rowData.join(',');
-      });
-
-      const csv = [header.map(h => `"${h}"`).join(','), ...rows].join('\n');
-
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `3d-archery-scores-${Date.now()}.csv`; // Unique filename
-      document.body.appendChild(a); // Append to body to make it clickable
-      a.click(); // Programmatically click the link to trigger download
-      document.body.removeChild(a); // Clean up the temporary link
-      URL.revokeObjectURL(url); // Release the object URL
-    });
-
-    // Listen for clicks on the 'Reset All' button
-    resetBtn.addEventListener('click', () => {
-      showConfirmationModal(); // Show the custom confirmation modal
-    });
-
-    // Handle confirmation modal buttons
-    confirmResetYes.addEventListener('click', () => {
-      hideConfirmationModal();
-      localStorage.removeItem('entries'); // Clear local storage entries
-      entries = {}; // Clear the 'entries' object in memory
-      updateTable(); // Refresh the local score table (which will now be empty)
-
-      // Optionally, if remote is used and an archer name is provided, delete their remote entry
-      if (remoteToggle.checked && firestoreInitialized && archerName.value.trim()) {
-        const name = formatName(archerName.value); // Format name before deleting
-        db.collection('leaderboard').doc(name).delete().then(() => {
-          console.log(`Remote score for ${name} deleted.`);
-          fetchAllLeaderboardData(); // Re-fetch all data to update month options and display
-        }).catch(error => {
-          console.error(`Error deleting remote score for ${name}:`, error);
-          alert("Failed to delete remote score. Check console for details.");
-        });
-      }
+      customScoreInput.value = '';
     });
 
     confirmResetNo.addEventListener('click', () => {
-      hideConfirmationModal(); // Just hide the modal if cancelled
+      confirmationModal.style.display = 'none';
     });
 
-    // Listen for changes on the month selection dropdown
-    monthSelect.addEventListener('change', () => {
-        displayLeaderboard(monthSelect.value);
-    });
+    showAllToggle.addEventListener('change', updateTable);
 
-    // Listen for clicks on the 'Refresh Leaderboard' button
-    refreshLb.addEventListener('click', fetchAllLeaderboardData); // Now refreshes all data and re-filters
-
-    // Listen for clicks on leaderboard table rows to show detailed scores
-    document.querySelector('#leaderboardTable tbody')
-      .addEventListener('click', async e => {
-      const tr = e.target.closest('tr');
-      // Ensure a valid row with a name dataset was clicked
-      if (!tr || !tr.dataset.name) return;
-
-      const name = tr.dataset.name;
-      if (!db) {
-        alert("Firestore is not initialized. Cannot fetch detailed scores.");
-        return;
-      }
-
-      // Check if the clicked row is already followed by a preview-row
-      const nextSibling = tr.nextElementSibling;
-      const isAlreadyOpen = nextSibling && nextSibling.classList.contains('preview-row');
-
-      // If the clicked row's preview is already open, close it
-      if (isAlreadyOpen) {
-        nextSibling.remove();
-        return;
-      }
-
-      // Remove any other existing preview row before opening a new one
-      const existingPreview = document.querySelector('.preview-row');
-      if (existingPreview) {
-        existingPreview.remove();
-      }
-
-      try {
-        const doc = await db.collection('leaderboard').doc(name).get();
-        if (!doc.exists) {
-          alert(`No detailed data found for ${name}.`);
-          return;
-        }
-
-        // Create the new preview row
-        const pr = document.createElement('tr');
-        pr.classList.add('preview-row', 'slide-enter');
-
-        let html = `<td colspan="3"><table class="table readonly-table">
-          <thead><tr><th>#</th><th>Arrows</th><th>Result</th><th>Score</th><th class="hide-on-mobile">Notes</th></tr></thead><tbody>`;
-
-        const data = doc.data();
-        // Sort the entries by target number for display
-        Object.entries(data.entries || {}).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).forEach(([t, entry]) => {
-          let displayArrows = '';
-          let displayResult = '';
-          let score = 0;
-
-          // Determine display values and score based on stored numerical values
-          if (entry.arrows === 0) { // Miss (numerical 0)
-              displayArrows = 'Miss';
-              displayResult = '';
-              score = 0;
-          } else if (typeof entry.arrows === 'number' && entry.resultType === NO_RESULT_CODE && entry.arrows !== 0) {
-              // This is a custom score
-              displayArrows = 'Custom'; // Display 'Custom' in Arrows column
-              displayResult = ''; // No result type for custom
-              score = entry.arrows; // Custom score is the arrow value itself
-          } else if (typeof entry.arrows === 'number' && typeof entry.resultType === 'number') {
-              displayArrows = entry.arrows.toString();
-              displayResult = RESULT_CODES_MAP[entry.resultType] || '';
-              score = window.scores?.[entry.resultType]?.[entry.arrows] || 0;
-          } else { // Fallback for old data or malformed entries
-              displayArrows = entry.arrows || '';
-              displayResult = entry.resultType || '';
-              score = 0;
-          }
-
-          html += `<tr><td>${t}</td><td>${displayArrows}</td><td>${displayResult}</td><td>${score}</td><td class="hide-on-mobile">${entry.notes || ''}</td></tr>`;
-        });
-
-        html += `</tbody><tfoot><tr><th colspan="3">Total</th><th>${data.totalScore}</th><th class="hide-on-mobile"></th></tr></tfoot></table></td>`;
-        pr.innerHTML = html;
-
-        // Insert the preview row after the clicked row
-        tr.parentNode.insertBefore(pr, tr.nextSibling);
-
-        // Trigger slide-down animation
-        requestAnimationFrame(() => pr.classList.add('slide-enter-active'));
-
-      } catch (error) {
-        console.error("Error fetching detailed leaderboard entry:", error);
-        alert("Failed to load detailed scores. Check console for details.");
-      }
-    });
-
-    // --- New Event Listener for Local Score Table Rows (Click to Edit) ---
-    scoreBody.addEventListener('click', (e) => {
-        const clickedRow = e.target.closest('tr');
-        if (!clickedRow) return; // Not a row
-
-        // Get the target number from the first cell
-        const targetNumber = parseInt(clickedRow.cells[0].textContent);
-
-        // Always set the targetSelect value
-        targetSelect.value = targetNumber;
-
-        // Check if there's an existing entry for this target
-        if (entries[targetNumber]) {
-            const entryData = entries[targetNumber];
-
-            // Handle arrows pre-fill, including 'Custom'
-            if (typeof entryData.arrows === 'number' && entryData.resultType === NO_RESULT_CODE && entryData.arrows !== 0) {
-                // This is a custom score
-                arrowsSelect.value = CUSTOM_ARROW_STR;
-                customScoreInput.value = entryData.arrows;
-            } else if (entryData.arrows === 0) { // Miss
-                arrowsSelect.value = MISS_ARROW_STR;
-            } else {
-                arrowsSelect.value = entryData.arrows.toString(); // Standard 1, 2, 3
-            }
-
-            resultSelect.value = entryData.resultType;
-            notesInput.value = entryData.notes;
-        } else {
-            // If no data for this target, clear other fields
-            arrowsSelect.value = '';
-            resultSelect.value = '';
-            notesInput.value = '';
-            customScoreInput.value = ''; // Clear custom score input
-        }
-
-        // Ensure the correct result input (select or custom text) is shown/hidden
+    targetSelect.addEventListener('change', () => {
+      const selectedTarget = targetSelect.value;
+      if (!selectedTarget) {
+        // If no target is selected, clear other fields
+        arrowsSelect.value = '';
+        resultSelect.value = '';
+        notesInput.value = '';
+        customScoreInput.value = '';
         handleArrowsSelectChange();
+        return;
+      }
+      
+      const entryData = entries[selectedTarget];
+      if (entryData) {
+        if (entryData.arrows && (entryData.resultType === NO_RESULT_CODE) && (entryData.arrows !== MISS_ARROW_STR)) {
+            // This is a custom score
+            arrowsSelect.value = CUSTOM_ARROW_STR;
+            customScoreInput.value = entryData.arrows;
+        } else if (entryData.arrows === MISS_ARROW_STR) { // Miss
+            arrowsSelect.value = MISS_ARROW_STR;
+        } else {
+            arrowsSelect.value = entryData.arrows.toString(); // Standard 1, 2, 3
+        }
 
-        // Scroll to the score form
-        scoreForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        resultSelect.value = entryData.resultType;
+        notesInput.value = entryData.notes;
+      } else {
+        // If no data for this target, clear other fields
+        arrowsSelect.value = '';
+        resultSelect.value = '';
+        notesInput.value = '';
+        customScoreInput.value = ''; // Clear custom score input
+      }
+
+      // Ensure the correct result input (select or custom text) is shown/hidden
+      handleArrowsSelectChange();
+
+      // Scroll to the score form
+      scoreForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
+    arrowsSelect.addEventListener('change', handleArrowsSelectChange);
+    
+    // Add event listener to the leaderboard table body for loading a specific entry
+    leaderboardBody.addEventListener('click', (e) => {
+        const row = e.target.closest('tr');
+        if (row && row.dataset.docId) {
+            loadFromRemote(row.dataset.docId);
+        }
+    });
 
     // --- Initial Setup on Page Load ---
     initSelects(); // Populate dropdowns
     loadLocal(); // Load saved preferences and apply them
     updateTable(); // Display any existing local scores
+    populateMonthSelect(); // Populate the month dropdown
 
     // Initialize the state of resultSelect/customScoreInput based on current arrowsSelect value
     // This handles cases where 'Miss' or 'Custom' might be pre-selected on load (e.g., from local storage)
