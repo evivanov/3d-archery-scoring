@@ -302,6 +302,45 @@
       color: #8e1b25;
     }
 
+    .summary-grid {
+      margin-top: 1rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .summary-card {
+      padding: 0.8rem 0.9rem;
+      border-radius: 10px;
+      background: #ffffff;
+      border: 1px solid #dfe5ec;
+    }
+
+    .summary-card__label {
+      display: block;
+      font-size: 0.78rem;
+      color: #6b7280;
+      margin-bottom: 0.2rem;
+    }
+
+    .summary-card__value {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #1f2937;
+    }
+
+    .leaderboard-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .leaderboard-toolbar .control {
+      margin-bottom: 0;
+    }
+
     /* Alignment adjustments for form buttons */
     .column .button {
         /* Adjusted margin-top to align with the notes input field */
@@ -347,6 +386,9 @@
         </div>
       </div>
       <button class="button is-info is-rounded ml-auto" id="exportCSV">Export as CSV</button>
+      <button class="button is-light is-rounded" id="exportBackup">Export Backup</button>
+      <button class="button is-light is-rounded" id="importBackup">Import Backup</button>
+      <input id="importBackupInput" type="file" accept="application/json,.json" class="hidden">
     </div>
 
     <!-- Score Entry Form -->
@@ -431,9 +473,35 @@
         </table>
     </div>
 
+    <div class="summary-grid" aria-label="Local score summary">
+      <div class="summary-card"><span class="summary-card__label">Targets scored</span><span class="summary-card__value" id="summaryTargets">0</span></div>
+      <div class="summary-card"><span class="summary-card__label">Total score</span><span class="summary-card__value" id="summaryScore">0</span></div>
+      <div class="summary-card"><span class="summary-card__label">Kills</span><span class="summary-card__value" id="summaryKills">0</span></div>
+      <div class="summary-card"><span class="summary-card__label">Wounds</span><span class="summary-card__value" id="summaryWounds">0</span></div>
+      <div class="summary-card"><span class="summary-card__label">Misses</span><span class="summary-card__value" id="summaryMisses">0</span></div>
+      <div class="summary-card"><span class="summary-card__label">Custom</span><span class="summary-card__value" id="summaryCustom">0</span></div>
+    </div>
+
     <!-- Leaderboard Section -->
     <div id="leaderboardSection" class="hidden"> <!-- Added wrapper div for the whole section -->
       <h2 class="title is-4 mt-6">Global Leaderboard</h2>
+      <div class="leaderboard-toolbar">
+        <div class="field has-addons is-flex-grow-1">
+          <div class="control is-expanded">
+            <input class="input is-rounded" type="text" id="leaderboardSearch" placeholder="Search archer name">
+          </div>
+          <div class="control">
+            <button class="button is-light is-rounded" type="button" id="clearLeaderboardSearch">Clear</button>
+          </div>
+        </div>
+        <div class="select is-rounded">
+          <select id="leaderboardLimit">
+            <option value="all">All</option>
+            <option value="10">Top 10</option>
+            <option value="25">Top 25</option>
+          </select>
+        </div>
+      </div>
       <div class="controls">
         <div class="select is-rounded">
           <select id="monthSelect"></select>
@@ -481,6 +549,9 @@
     const nameContainer = document.getElementById('nameContainer');
     const archerName = document.getElementById('archerName');
     const exportCSV = document.getElementById('exportCSV');
+    const exportBackup = document.getElementById('exportBackup');
+    const importBackup = document.getElementById('importBackup');
+    const importBackupInput = document.getElementById('importBackupInput');
     const targetSelect = document.getElementById('targetSelect');
     const arrowsSelect = document.getElementById('arrowsSelect');
     const resultSelect = document.getElementById('resultSelect');
@@ -496,7 +567,16 @@
     const totalTargetsDisplay = document.getElementById('totalTargetsDisplay'); // Element to display total targets
     const scoreBody = document.getElementById('scoreBody');
     const totalScoreEl = document.getElementById('totalScore');
+    const summaryTargets = document.getElementById('summaryTargets');
+    const summaryScore = document.getElementById('summaryScore');
+    const summaryKills = document.getElementById('summaryKills');
+    const summaryWounds = document.getElementById('summaryWounds');
+    const summaryMisses = document.getElementById('summaryMisses');
+    const summaryCustom = document.getElementById('summaryCustom');
     const leaderboardSection = document.getElementById('leaderboardSection'); // Reference for the whole leaderboard section
+    const leaderboardSearch = document.getElementById('leaderboardSearch');
+    const clearLeaderboardSearch = document.getElementById('clearLeaderboardSearch');
+    const leaderboardLimit = document.getElementById('leaderboardLimit');
     const monthSelect = document.getElementById('monthSelect'); // New month select dropdown
     const refreshLb = document.getElementById('refreshLeaderboard');
     const leaderboardBody = document.getElementById('leaderboardBody'); // Reference for the leaderboard table body
@@ -517,7 +597,6 @@
     let firestoreInitialized = false; // Flag to track Firestore initialization
     let allLeaderboardData = []; // Store all fetched leaderboard data for client-side filtering
     let activeRemoteDocId = null; // Tracks which remote leaderboard entry is currently loaded for editing
-    let activeRemoteMeta = null; // Meta of the currently loaded/updated remote entry
     let undoState = null; // One-step undo snapshot
     let toastTimeoutId = null;
 
@@ -530,6 +609,7 @@
     // Reverse mapping for displaying result types
     const RESULT_CODES_MAP = { [KILL_CODE]: 'Kill', [WOUND_CODE]: 'Wound', [NO_RESULT_CODE]: '' // For Miss or Custom, no specific result type
     };
+    const PENDING_REMOTE_QUEUE_KEY = 'pendingRemoteQueue_v1';
     // Get total targets from scores.js, default to 25 if not defined
     const TOTAL_TARGETS = window.scores?.TOTAL_TARGETS || 25;
     totalTargetsDisplay.textContent = TOTAL_TARGETS; // Update display in HTML
@@ -569,15 +649,8 @@
         entries: JSON.parse(JSON.stringify(entries)),
         selectedTarget: targetSelect.value,
         activeRemoteDocId,
-        activeRemoteMeta: activeRemoteMeta ? { ...activeRemoteMeta } : null,
       };
       undoBtn.disabled = false;
-    }
-
-    /**
-     * Updates the edit status helper text.
-     */
-    function updateEditStatus() {
     }
 
     /**
@@ -637,6 +710,80 @@
       toastTimeoutId = setTimeout(() => {
         toast.classList.remove('is-visible');
       }, 2200);
+    }
+
+    /**
+     * Loads the queued remote save operations.
+     * @returns {Array<object>} Queue items.
+     */
+    function loadPendingRemoteQueue() {
+      try {
+        return JSON.parse(localStorage.getItem(PENDING_REMOTE_QUEUE_KEY) || '[]');
+      } catch {
+        return [];
+      }
+    }
+
+    /**
+     * Persists the queued remote save operations.
+     * @param {Array<object>} queue - Queue items.
+     */
+    function savePendingRemoteQueue(queue) {
+      localStorage.setItem(PENDING_REMOTE_QUEUE_KEY, JSON.stringify(queue));
+    }
+
+    /**
+     * Adds a remote save to the queue for later synchronization.
+     * @param {object} payload - Remote save payload.
+     */
+    function queueRemoteSave(payload) {
+      const queue = loadPendingRemoteQueue();
+      queue.push(payload);
+      savePendingRemoteQueue(queue);
+      setRemoteStatus('Remote save queued for sync.', 'warning');
+      showToast('Remote queued', 'success');
+    }
+
+    /**
+     * Syncs any queued remote saves.
+     */
+    async function processPendingRemoteQueue() {
+      if (!db) return;
+
+      const queue = loadPendingRemoteQueue();
+      if (queue.length === 0) return;
+
+      setRemoteStatus(`Syncing ${queue.length} queued remote save(s)...`, 'warning');
+      const remaining = [];
+
+      for (const item of queue) {
+        try {
+          if (item.activeRemoteDocId) {
+            await db.collection(LEADERBOARD_COLLECTION).doc(item.activeRemoteDocId).set(item.newDoc, { merge: true });
+          } else {
+            const existingQuery = await db.collection(LEADERBOARD_COLLECTION)
+              .where('name', '==', item.newDoc.name)
+              .where('dateKey', '==', item.newDoc.dateKey)
+              .limit(1)
+              .get();
+
+            if (!existingQuery.empty) {
+              await existingQuery.docs[0].ref.set(item.newDoc, { merge: true });
+            } else {
+              await db.collection(LEADERBOARD_COLLECTION).add(item.newDoc);
+            }
+          }
+        } catch (error) {
+          remaining.push(item);
+        }
+      }
+
+      savePendingRemoteQueue(remaining);
+      if (remaining.length === 0) {
+        setRemoteStatus('Queued remote saves synced successfully.', 'success');
+      } else {
+        setRemoteStatus(`Some remote saves still need syncing (${remaining.length} queued).`, 'warning');
+      }
     }
 
     /**
@@ -709,6 +856,37 @@
     }
 
     /**
+     * Calculates local score summary metrics.
+     * @returns {object} Summary data.
+     */
+    function calculateScoreSummary() {
+      const summary = {
+        targets: Object.keys(entries).length,
+        totalScore: 0,
+        kills: 0,
+        wounds: 0,
+        misses: 0,
+        custom: 0,
+      };
+
+      for (const target in entries) {
+        const entry = entries[target];
+        if (entry.resultType === KILL_CODE) summary.kills += 1;
+        if (entry.resultType === WOUND_CODE) summary.wounds += 1;
+        if (entry.arrows === MISS_ARROW_STR) summary.misses += 1;
+        if (entry.resultType === NO_RESULT_CODE && entry.arrows !== MISS_ARROW_STR) summary.custom += 1;
+
+        if (entry.resultType === KILL_CODE || entry.resultType === WOUND_CODE) {
+          summary.totalScore += window.scores[entry.resultType][entry.arrows];
+        } else if (entry.arrows !== MISS_ARROW_STR) {
+          summary.totalScore += parseInt(entry.arrows, 10);
+        }
+      }
+
+      return summary;
+    }
+
+    /**
      * Saves the current `entries` object to local storage.
      */
     function saveLocal() {
@@ -777,6 +955,13 @@
       });
 
       totalScoreEl.textContent = total;
+      const summary = calculateScoreSummary();
+      summaryTargets.textContent = summary.targets;
+      summaryScore.textContent = summary.totalScore;
+      summaryKills.textContent = summary.kills;
+      summaryWounds.textContent = summary.wounds;
+      summaryMisses.textContent = summary.misses;
+      summaryCustom.textContent = summary.custom;
 
       // Keep the selected row highlighted after table rerender.
       highlightSelectedTargetRow(targetSelect.value);
@@ -806,7 +991,6 @@
         customScoreInput.value = '';
         handleArrowsSelectChange();
         highlightSelectedTargetRow('');
-        updateEditStatus();
         return;
       }
 
@@ -835,7 +1019,6 @@
       handleArrowsSelectChange();
       highlightSelectedTargetRow(selectedTarget);
       scoreForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      updateEditStatus();
     }
 
     /**
@@ -895,6 +1078,7 @@
             console.log("Firestore initialized.");
         setRemoteStatus('Firestore initialized. Loading leaderboard...', 'warning');
             fetchLeaderboard(); // Initial fetch
+        processPendingRemoteQueue();
         } else if (!window.firebase) {
             console.error("Firebase SDK not loaded. Check script tags.");
         setRemoteStatus('Firebase SDK failed to load.', 'danger');
@@ -915,18 +1099,6 @@
       }
 
       setRemoteStatus('Loading leaderboard data...', 'warning');
-
-      // Use a timestamp to query for documents in the selected month
-      // This is a simple approach. A more robust solution might use a dedicated 'month' field
-      // to avoid complex date range queries, which can be slow and require composite indexes.
-      const selectedMonth = monthSelect.value;
-      let monthStartDate, monthEndDate;
-        if (selectedMonth && selectedMonth !== 'all') {
-          const [year, month] = selectedMonth.split('-');
-          monthStartDate = new Date(year, parseInt(month) - 1, 1);
-          monthEndDate = new Date(year, parseInt(month), 0);
-          monthEndDate.setHours(23, 59, 59, 999);
-      }
       
       const leaderboardRef = db.collection(LEADERBOARD_COLLECTION);
       
@@ -945,36 +1117,43 @@
         snapshot.forEach(doc => {
           allLeaderboardData.push({ id: doc.id, ...doc.data() });
         });
-        
-        // Client-side filtering and sorting
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth() + 1;
-        const currentMonthString = `${year}-${String(month).padStart(2, '0')}`;
-        
-        const filteredData = allLeaderboardData.filter(d => {
-            const date = new Date(d.date);
-            const entryMonthString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-            // If "All Months" is selected, include every entry.
-            if (selectedMonth === 'all') return true;
-            // If no month is selected, show current month by default.
-            return selectedMonth ? entryMonthString === selectedMonth : entryMonthString === currentMonthString;
-        });
-        
-        // Sort by totalScore descending, then by date descending
-        filteredData.sort((a, b) => {
-          if (b.totalScore !== a.totalScore) {
-            return b.totalScore - a.totalScore;
-          }
-          return new Date(b.date) - new Date(a.date);
-        });
 
-        renderLeaderboard(filteredData);
-        setRemoteStatus(`Remote ready. Showing ${filteredData.length} score(s).`, 'success');
+        populateMonthSelect(allLeaderboardData);
+        applyLeaderboardFilters();
+        setRemoteStatus(`Remote ready. Loaded ${allLeaderboardData.length} score(s).`, 'success');
       }, err => {
         console.error("Error fetching leaderboard: ", err);
         setRemoteStatus(`Failed to load leaderboard: ${err.message || 'unknown error'}`, 'danger');
       });
+    }
+
+    /**
+     * Applies all leaderboard filters and renders the result.
+     */
+    function applyLeaderboardFilters() {
+      const selectedMonth = monthSelect.value;
+      const searchTerm = leaderboardSearch.value.trim().toLowerCase();
+      const limitValue = leaderboardLimit.value;
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const currentMonthString = `${year}-${String(month).padStart(2, '0')}`;
+
+      const filteredData = allLeaderboardData.filter(d => {
+        const date = new Date(d.date);
+        const entryMonthString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (selectedMonth === 'all') return true;
+        return selectedMonth ? entryMonthString === selectedMonth : entryMonthString === currentMonthString;
+      }).filter(d => !searchTerm || String(d.name || '').toLowerCase().includes(searchTerm));
+
+      filteredData.sort((a, b) => {
+        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+        return new Date(b.date) - new Date(a.date);
+      });
+
+      const limitedData = limitValue === 'all' ? filteredData : filteredData.slice(0, parseInt(limitValue, 10));
+      renderLeaderboard(limitedData);
     }
     
     function renderLeaderboard(data) {
@@ -1001,13 +1180,17 @@
     }
 
     /**
-     * Populates the month select dropdown with options for the current and previous 12 months.
+     * Populates month options from available leaderboard data.
+     * Previous months are shown only when data exists for them.
+     * @param {Array<object>} data - Leaderboard entries.
      */
-    function populateMonthSelect() {
+    function populateMonthSelect(data = []) {
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth();
+      const currentMonthString = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
       const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const previousSelection = monthSelect.value || 'all';
       
       monthSelect.innerHTML = '';
 
@@ -1023,19 +1206,27 @@
       currentMonthOption.textContent = `Current Month (${months[currentMonth]} ${currentYear})`;
       monthSelect.appendChild(currentMonthOption);
 
-      // Add previous months
-      for (let i = 1; i <= 12; i++) {
-        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const year = date.getFullYear();
-        const month = date.getMonth();
-        const value = `${year}-${String(month + 1).padStart(2, '0')}`;
-        const text = `${months[month]} ${year}`;
-        const option = new Option(text, value);
-        monthSelect.add(option);
-      }
+      // Add only months that have data, excluding the current month already shown above.
+      const availableMonths = new Set();
+      data.forEach(entry => {
+        const date = new Date(entry.date);
+        if (Number.isNaN(date.getTime())) return;
+        const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (value !== currentMonthString) availableMonths.add(value);
+      });
 
-      // Make combined list the default selection.
-      monthSelect.value = 'all';
+      Array.from(availableMonths)
+        .sort((a, b) => b.localeCompare(a))
+        .forEach(value => {
+          const [year, month] = value.split('-').map(Number);
+          const text = `${months[month - 1]} ${year}`;
+          monthSelect.add(new Option(text, value));
+        });
+
+      monthSelect.value = previousSelection;
+      if (!monthSelect.value) {
+        monthSelect.value = 'all';
+      }
     }
     
     /**
@@ -1055,11 +1246,6 @@
                 const data = doc.data();
                 entries = data.entries;
               activeRemoteDocId = docId;
-                activeRemoteMeta = {
-                  name: data.name,
-                  date: data.date,
-                  dateKey: data.dateKey || '',
-                };
                 // Since this is a new remote entry, we save it locally for now.
                 // You could add a docId field to the local entries if you want to track it.
                 saveLocal();
@@ -1070,7 +1256,6 @@
                 
                 // Scroll to the local score table
                 scoreBody.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                updateEditStatus();
                 setRemoteStatus('Remote entry loaded into local editor.', 'success');
             } else {
                 console.error("Document not found.");
@@ -1084,8 +1269,90 @@
 
     // --- Event Listeners ---
     remoteToggle.addEventListener('change', () => toggleRemote(remoteToggle.checked));
-    
-    monthSelect.addEventListener('change', () => fetchLeaderboard());
+    exportCSV.addEventListener('click', () => {
+      const rows = [
+        ['Target', 'Arrows', 'Result', 'Score', 'Notes'],
+      ];
+
+      const targetKeys = Object.keys(entries).sort((a, b) => Number(a) - Number(b));
+      targetKeys.forEach(target => {
+        const entry = entries[target];
+        let score = '';
+        if (entry.arrows === MISS_ARROW_STR) {
+          score = 0;
+        } else if (entry.resultType === KILL_CODE || entry.resultType === WOUND_CODE) {
+          score = window.scores[entry.resultType][entry.arrows];
+        } else {
+          score = entry.arrows;
+        }
+
+        rows.push([
+          target,
+          entry.arrows === MISS_ARROW_STR ? 'Miss' : entry.arrows,
+          RESULT_CODES_MAP[entry.resultType] || '',
+          score,
+          entry.notes || '',
+        ]);
+      });
+
+      const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `3d-archery-scores-${getLocalDateKey()}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+
+    exportBackup.addEventListener('click', () => {
+      const backup = {
+        version: '1.2.0',
+        exportedAt: new Date().toISOString(),
+        entries,
+      };
+
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `3d-archery-backup-${getLocalDateKey()}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+
+    importBackup.addEventListener('click', () => {
+      importBackupInput.click();
+    });
+
+    importBackupInput.addEventListener('change', async () => {
+      const file = importBackupInput.files?.[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!data.entries || typeof data.entries !== 'object') {
+          throw new Error('Invalid backup file.');
+        }
+
+        snapshotForUndo();
+        entries = data.entries;
+        saveLocal();
+        updateTable();
+        showToast('Backup imported', 'success');
+      } catch (error) {
+        alert(`Import failed: ${error.message}`);
+      } finally {
+        importBackupInput.value = '';
+      }
+    });
+
+    monthSelect.addEventListener('change', () => applyLeaderboardFilters());
+    leaderboardSearch.addEventListener('input', () => applyLeaderboardFilters());
+    clearLeaderboardSearch.addEventListener('click', () => {
+      leaderboardSearch.value = '';
+      applyLeaderboardFilters();
+    });
+    leaderboardLimit.addEventListener('change', () => applyLeaderboardFilters());
     
     refreshLb.addEventListener('click', () => fetchLeaderboard());
 
@@ -1139,11 +1406,6 @@
 
           if (activeRemoteDocId) {
             await db.collection(LEADERBOARD_COLLECTION).doc(activeRemoteDocId).set(newDoc, { merge: true });
-            activeRemoteMeta = {
-              name,
-              date: dateIso,
-              dateKey,
-            };
             console.log("Score updated in leaderboard.");
             setRemoteStatus('Remote score updated successfully.', 'success');
             showToast('Remote updated', 'success');
@@ -1159,32 +1421,20 @@
               const existingDoc = existingQuery.docs[0];
               activeRemoteDocId = existingDoc.id;
               await existingDoc.ref.set(newDoc, { merge: true });
-              activeRemoteMeta = {
-                name,
-                date: dateIso,
-                dateKey,
-              };
               console.log("Score updated in leaderboard.");
               setRemoteStatus('Remote score updated successfully.', 'success');
               showToast('Remote updated', 'success');
             } else {
               const createdDoc = await db.collection(LEADERBOARD_COLLECTION).add(newDoc);
               activeRemoteDocId = createdDoc.id;
-              activeRemoteMeta = {
-                name,
-                date: dateIso,
-                dateKey,
-              };
               console.log("Score saved to leaderboard.");
               setRemoteStatus('Remote score saved successfully.', 'success');
               showToast('Remote saved', 'success');
             }
           }
-          updateEditStatus();
         } catch (e) {
           console.error("Error saving to leaderboard: ", e);
-          setRemoteStatus(`Failed to save remote score: ${e.message || 'unknown error'}`, 'danger');
-          showToast('Remote save failed', 'danger');
+          queueRemoteSave({ activeRemoteDocId, newDoc });
         }
       }
     });
@@ -1213,7 +1463,6 @@
 
       entries = undoState.entries;
       activeRemoteDocId = undoState.activeRemoteDocId;
-      activeRemoteMeta = undoState.activeRemoteMeta;
       saveLocal();
       updateTable();
 
@@ -1222,7 +1471,6 @@
 
       undoState = null;
       undoBtn.disabled = true;
-      updateEditStatus();
     });
 
     resetBtn.addEventListener('click', () => {
@@ -1234,7 +1482,6 @@
       localStorage.removeItem('entries');
       entries = {};
       activeRemoteDocId = null;
-      activeRemoteMeta = null;
       updateTable();
       confirmationModal.style.display = 'none';
       targetSelect.value = '';
@@ -1242,11 +1489,30 @@
       resultSelect.value = '';
       notesInput.value = '';
       customScoreInput.value = '';
-      updateEditStatus();
     });
 
     confirmResetNo.addEventListener('click', () => {
       confirmationModal.style.display = 'none';
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (confirmationModal.style.display === 'flex' && event.key === 'Escape') {
+        confirmationModal.style.display = 'none';
+        return;
+      }
+
+      if (event.key === 'Enter' && scoreForm.contains(event.target) && event.target.tagName !== 'BUTTON') {
+        if (targetSelect.value && arrowsSelect.value) {
+          event.preventDefault();
+          addBtn.click();
+        }
+        return;
+      }
+
+      if ((event.key === 'Delete' || event.key === 'Backspace') && document.activeElement === targetSelect) {
+        event.preventDefault();
+        deleteBtn.click();
+      }
     });
 
     showAllToggle.addEventListener('change', updateTable);
@@ -1283,8 +1549,13 @@
     // Initialize the state of resultSelect/customScoreInput based on current arrowsSelect value
     // This handles cases where 'Miss' or 'Custom' might be pre-selected on load (e.g., from local storage)
     handleArrowsSelectChange();
-    updateEditStatus();
     setRemoteStatus('Remote database is disabled.');
+
+    window.addEventListener('online', () => {
+      if (firestoreInitialized) {
+        processPendingRemoteQueue();
+      }
+    });
 
     // Listen for window resize to adjust table columns dynamically
     window.addEventListener('resize', updateTable);
