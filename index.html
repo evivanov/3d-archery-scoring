@@ -84,6 +84,10 @@
       cursor: pointer;
     }
 
+    tbody tr.is-selected {
+      background-color: #d1ecff;
+    }
+
     /* Styling for missed entries */
     .missed {
       background: #f8f8f8; /* Slightly greyed out background */
@@ -197,6 +201,107 @@
         margin-bottom: 0; /* Remove default margin-bottom from Bulma's .field */
     }
 
+    .remote-status {
+      margin-top: 0.5rem;
+      padding: 0.6rem 0.85rem;
+      border-radius: 8px;
+      background: #f8f9fa;
+      border: 1px solid #e3e6ea;
+      font-size: 0.88rem;
+      color: #3f4852;
+    }
+
+    .remote-status.is-success {
+      background: #edf9f0;
+      border-color: #c5e9cf;
+      color: #1f5d30;
+    }
+
+    .remote-status.is-warning {
+      background: #fff8e6;
+      border-color: #f1ddb0;
+      color: #785a00;
+    }
+
+    .remote-status.is-danger {
+      background: #fff0f1;
+      border-color: #f3c6ca;
+      color: #8e1b25;
+    }
+
+    .toast {
+      position: fixed;
+      right: 1rem;
+      bottom: 1rem;
+      z-index: 1200;
+      padding: 0.7rem 0.9rem;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+      background: #ffffff;
+      color: #2a2a2a;
+      max-width: 320px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(6px);
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+
+    .toast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast.is-success {
+      border-color: #9bd4a7;
+      background: #eefaf1;
+      color: #1f5d30;
+    }
+
+    .toast.is-danger {
+      border-color: #f1a7af;
+      background: #fff2f3;
+      color: #8e1b25;
+    }
+
+    .footer-bar {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid #dfe5ec;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      color: #4b5563;
+    }
+
+    .footer-bar__meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.75rem;
+      align-items: center;
+    }
+
+    .footer-bar__status {
+      font-weight: 600;
+    }
+
+    .footer-bar__status.is-success {
+      color: #1f5d30;
+    }
+
+    .footer-bar__status.is-warning {
+      color: #785a00;
+    }
+
+    .footer-bar__status.is-danger {
+      color: #8e1b25;
+    }
+
     /* Alignment adjustments for form buttons */
     .column .button {
         /* Adjusted margin-top to align with the notes input field */
@@ -241,7 +346,7 @@
           <input class="input is-rounded" type="text" id="archerName" placeholder="Your Name">
         </div>
       </div>
-      <button class="button is-info is-rounded ml-auto" id="exportCSV">Export CSV</button>
+      <button class="button is-info is-rounded ml-auto" id="exportCSV">Export as CSV</button>
     </div>
 
     <!-- Score Entry Form -->
@@ -277,11 +382,19 @@
           <input class="input is-rounded" type="text" id="notesInput" placeholder="Add notes (optional)">
         </div>
         <!-- Save Target Button -->
-        <div class="column is-one-third">
+        <div class="column is-one-quarter">
           <button class="button is-success is-rounded is-fullwidth" type="button" id="addBtn">Save</button>
         </div>
+        <!-- Delete Target Button -->
+        <div class="column is-one-quarter">
+          <button class="button is-danger is-light is-rounded is-fullwidth" type="button" id="deleteBtn">Delete Target</button>
+        </div>
+        <!-- Undo Button -->
+        <div class="column is-one-quarter">
+          <button class="button is-link is-light is-rounded is-fullwidth" type="button" id="undoBtn" disabled>Undo</button>
+        </div>
         <!-- Reset Button -->
-        <div class="column is-one-third">
+        <div class="column is-one-quarter">
           <button class="button is-warning is-rounded is-fullwidth" type="button" id="resetBtn">Reset All</button>
         </div>
         <!-- Show All Targets Toggle -->
@@ -327,6 +440,7 @@
         </div>
         <button class="button is-primary is-rounded ml-auto" id="refreshLeaderboard">Refresh Leaderboard</button>
       </div>
+      <div id="remoteStatus" class="remote-status">Remote database is disabled.</div>
       <div class="table-container">
         <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
           <thead><tr><th>Name</th><th>Date</th><th class="hide-on-mobile">Total Score</th></tr></thead>
@@ -336,7 +450,17 @@
         </table>
       </div>
     </div>
+
+    <footer class="footer-bar" aria-label="Page footer">
+      <div class="footer-bar__meta">
+        <span>&copy; 2026 3D Archery Score Tracker</span>
+        <span>Version 1.2.0</span>
+      </div>
+      <div id="footerStatus" class="footer-bar__status">Remote database is disabled.</div>
+    </footer>
   </div>
+
+  <div id="toast" class="toast" aria-live="polite" role="status"></div>
 
   <!-- Custom Confirmation Modal -->
   <div id="confirmationModal" class="modal">
@@ -365,6 +489,8 @@
     const customScoreInputWrapper = document.getElementById('customScoreInputWrapper'); // New custom score input wrapper
     const notesInput = document.getElementById('notesInput');
     const addBtn = document.getElementById('addBtn');
+    const deleteBtn = document.getElementById('deleteBtn');
+    const undoBtn = document.getElementById('undoBtn');
     const resetBtn = document.getElementById('resetBtn');
     const showAllToggle = document.getElementById('showAllToggle');
     const totalTargetsDisplay = document.getElementById('totalTargetsDisplay'); // Element to display total targets
@@ -375,6 +501,9 @@
     const refreshLb = document.getElementById('refreshLeaderboard');
     const leaderboardBody = document.getElementById('leaderboardBody'); // Reference for the leaderboard table body
     const scoreForm = document.getElementById('scoreForm'); // Reference to the score form for scrolling
+    const remoteStatus = document.getElementById('remoteStatus');
+    const footerStatus = document.getElementById('footerStatus');
+    const toast = document.getElementById('toast');
 
     // Modal elements
     const confirmationModal = document.getElementById('confirmationModal');
@@ -387,6 +516,10 @@
     let db; // Firestore database instance
     let firestoreInitialized = false; // Flag to track Firestore initialization
     let allLeaderboardData = []; // Store all fetched leaderboard data for client-side filtering
+    let activeRemoteDocId = null; // Tracks which remote leaderboard entry is currently loaded for editing
+    let activeRemoteMeta = null; // Meta of the currently loaded/updated remote entry
+    let undoState = null; // One-step undo snapshot
+    let toastTimeoutId = null;
 
     // --- Constants for numerical codes ---
     const MISS_ARROW_STR = '0'; // String representation for 'Miss' in dropdown
@@ -414,6 +547,96 @@
       if (!str) return '';
       str = str.trim();
       return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    /**
+     * Returns local date in YYYY-MM-DD format for daily remote upserts.
+     * @returns {string} Date key.
+     */
+    function getLocalDateKey() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    /**
+     * Creates an undo snapshot before a mutating action.
+     */
+    function snapshotForUndo() {
+      undoState = {
+        entries: JSON.parse(JSON.stringify(entries)),
+        selectedTarget: targetSelect.value,
+        activeRemoteDocId,
+        activeRemoteMeta: activeRemoteMeta ? { ...activeRemoteMeta } : null,
+      };
+      undoBtn.disabled = false;
+    }
+
+    /**
+     * Updates the edit status helper text.
+     */
+    function updateEditStatus() {
+    }
+
+    /**
+     * Returns a display timestamp for status updates.
+     * @returns {string} Time label.
+     */
+    function getStatusTimeLabel() {
+      return new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    }
+
+    /**
+     * Updates remote db status panel style and message.
+     * @param {string} message - Status text.
+     * @param {'default'|'success'|'warning'|'danger'} tone - Visual tone.
+     */
+    function setRemoteStatus(message, tone = 'default') {
+      remoteStatus.textContent = `${message} | Last update: ${getStatusTimeLabel()}`;
+      footerStatus.textContent = remoteStatus.textContent;
+      footerStatus.classList.remove('is-success', 'is-warning', 'is-danger');
+      remoteStatus.classList.remove('is-success', 'is-warning', 'is-danger');
+      if (tone === 'success') {
+        remoteStatus.classList.add('is-success');
+        footerStatus.classList.add('is-success');
+      }
+      if (tone === 'warning') {
+        remoteStatus.classList.add('is-warning');
+        footerStatus.classList.add('is-warning');
+      }
+      if (tone === 'danger') {
+        remoteStatus.classList.add('is-danger');
+        footerStatus.classList.add('is-danger');
+      }
+    }
+
+    /**
+     * Shows a transient toast message.
+     * @param {string} message - Toast text.
+     * @param {'success'|'danger'} tone - Visual tone.
+     */
+    function showToast(message, tone = 'success') {
+      if (toastTimeoutId) {
+        clearTimeout(toastTimeoutId);
+      }
+
+      toast.textContent = message;
+      toast.classList.remove('is-success', 'is-danger', 'is-visible');
+      toast.classList.add(tone === 'danger' ? 'is-danger' : 'is-success');
+
+      // Force style flush so repeated messages still animate.
+      void toast.offsetWidth;
+      toast.classList.add('is-visible');
+
+      toastTimeoutId = setTimeout(() => {
+        toast.classList.remove('is-visible');
+      }, 2200);
     }
 
     /**
@@ -554,6 +777,65 @@
       });
 
       totalScoreEl.textContent = total;
+
+      // Keep the selected row highlighted after table rerender.
+      highlightSelectedTargetRow(targetSelect.value);
+    }
+
+    /**
+     * Highlights the selected target row in the local score table.
+     * @param {string} selectedTarget - The selected target id.
+     */
+    function highlightSelectedTargetRow(selectedTarget) {
+      const rows = scoreBody.querySelectorAll('tr');
+      rows.forEach(row => {
+        row.classList.toggle('is-selected', row.dataset.target === selectedTarget);
+      });
+    }
+
+    /**
+     * Loads the selected target entry into the form for editing.
+     * @param {string} selectedTarget - The selected target id.
+     */
+    function loadEntryIntoForm(selectedTarget) {
+      if (!selectedTarget) {
+        // If no target is selected, clear other fields.
+        arrowsSelect.value = '';
+        resultSelect.value = '';
+        notesInput.value = '';
+        customScoreInput.value = '';
+        handleArrowsSelectChange();
+        highlightSelectedTargetRow('');
+        updateEditStatus();
+        return;
+      }
+
+      const entryData = entries[selectedTarget];
+      if (entryData) {
+        if (entryData.arrows && (entryData.resultType === NO_RESULT_CODE) && (entryData.arrows !== MISS_ARROW_STR)) {
+          // This is a custom score.
+          arrowsSelect.value = CUSTOM_ARROW_STR;
+          customScoreInput.value = entryData.arrows;
+        } else if (entryData.arrows === MISS_ARROW_STR) {
+          arrowsSelect.value = MISS_ARROW_STR;
+        } else {
+          arrowsSelect.value = entryData.arrows.toString();
+        }
+
+        resultSelect.value = entryData.resultType;
+        notesInput.value = entryData.notes;
+      } else {
+        // If no data for this target, clear other fields.
+        arrowsSelect.value = '';
+        resultSelect.value = '';
+        notesInput.value = '';
+        customScoreInput.value = '';
+      }
+
+      handleArrowsSelectChange();
+      highlightSelectedTargetRow(selectedTarget);
+      scoreForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      updateEditStatus();
     }
 
     /**
@@ -586,6 +868,7 @@
      */
     function toggleRemote(isRemote) {
       if (isRemote) {
+        setRemoteStatus('Connecting to remote database...', 'warning');
         nameContainer.classList.remove('hidden');
         leaderboardSection.classList.remove('hidden');
         if (!firestoreInitialized) {
@@ -596,6 +879,7 @@
       } else {
         nameContainer.classList.add('hidden');
         leaderboardSection.classList.add('hidden');
+        setRemoteStatus('Remote database is disabled.');
       }
     }
 
@@ -603,16 +887,20 @@
      * Initializes Firestore.
      */
     function initFirestore() {
+      setRemoteStatus('Initializing Firestore...', 'warning');
         if (!firestoreInitialized && window._env_ && window.firebase) {
             firebase.initializeApp(window._env_);
             db = firebase.firestore();
             firestoreInitialized = true;
             console.log("Firestore initialized.");
+        setRemoteStatus('Firestore initialized. Loading leaderboard...', 'warning');
             fetchLeaderboard(); // Initial fetch
         } else if (!window.firebase) {
             console.error("Firebase SDK not loaded. Check script tags.");
+        setRemoteStatus('Firebase SDK failed to load.', 'danger');
         } else if (!window._env_) {
             console.error("Environment variables for Firebase not found. Check env.js.");
+        setRemoteStatus('Firebase env config missing. Check env.js.', 'danger');
         }
     }
 
@@ -622,15 +910,18 @@
     function fetchLeaderboard() {
       if (!db) {
         console.error("Firestore not initialized.");
+        setRemoteStatus('Firestore is not initialized.', 'danger');
         return;
       }
+
+      setRemoteStatus('Loading leaderboard data...', 'warning');
 
       // Use a timestamp to query for documents in the selected month
       // This is a simple approach. A more robust solution might use a dedicated 'month' field
       // to avoid complex date range queries, which can be slow and require composite indexes.
       const selectedMonth = monthSelect.value;
       let monthStartDate, monthEndDate;
-      if (selectedMonth) {
+        if (selectedMonth && selectedMonth !== 'all') {
           const [year, month] = selectedMonth.split('-');
           monthStartDate = new Date(year, parseInt(month) - 1, 1);
           monthEndDate = new Date(year, parseInt(month), 0);
@@ -664,6 +955,8 @@
         const filteredData = allLeaderboardData.filter(d => {
             const date = new Date(d.date);
             const entryMonthString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            // If "All Months" is selected, include every entry.
+            if (selectedMonth === 'all') return true;
             // If no month is selected, show current month by default.
             return selectedMonth ? entryMonthString === selectedMonth : entryMonthString === currentMonthString;
         });
@@ -677,15 +970,17 @@
         });
 
         renderLeaderboard(filteredData);
+        setRemoteStatus(`Remote ready. Showing ${filteredData.length} score(s).`, 'success');
       }, err => {
         console.error("Error fetching leaderboard: ", err);
+        setRemoteStatus(`Failed to load leaderboard: ${err.message || 'unknown error'}`, 'danger');
       });
     }
     
     function renderLeaderboard(data) {
         leaderboardBody.innerHTML = '';
         if (data.length === 0) {
-            leaderboardBody.innerHTML = '<tr><td colspan="3">No scores available for this month.</td></tr>';
+          leaderboardBody.innerHTML = '<tr><td colspan="3">No scores available for this selection.</td></tr>';
             return;
         }
 
@@ -716,6 +1011,12 @@
       
       monthSelect.innerHTML = '';
 
+      // Add an 'All Months' option as default for a unified leaderboard view.
+      const allMonthsOption = document.createElement('option');
+      allMonthsOption.value = 'all';
+      allMonthsOption.textContent = 'All Months';
+      monthSelect.appendChild(allMonthsOption);
+
       // Add a 'Current Month' option
       const currentMonthOption = document.createElement('option');
       currentMonthOption.value = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
@@ -732,6 +1033,9 @@
         const option = new Option(text, value);
         monthSelect.add(option);
       }
+
+      // Make combined list the default selection.
+      monthSelect.value = 'all';
     }
     
     /**
@@ -741,13 +1045,21 @@
     async function loadFromRemote(docId) {
         if (!db) {
             console.error("Firestore not initialized.");
+        setRemoteStatus('Cannot load entry: Firestore not initialized.', 'danger');
             return;
         }
+      setRemoteStatus('Loading selected remote entry...', 'warning');
         try {
             const doc = await db.collection(LEADERBOARD_COLLECTION).doc(docId).get();
             if (doc.exists) {
                 const data = doc.data();
                 entries = data.entries;
+              activeRemoteDocId = docId;
+                activeRemoteMeta = {
+                  name: data.name,
+                  date: data.date,
+                  dateKey: data.dateKey || '',
+                };
                 // Since this is a new remote entry, we save it locally for now.
                 // You could add a docId field to the local entries if you want to track it.
                 saveLocal();
@@ -758,11 +1070,15 @@
                 
                 // Scroll to the local score table
                 scoreBody.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                updateEditStatus();
+                setRemoteStatus('Remote entry loaded into local editor.', 'success');
             } else {
                 console.error("Document not found.");
+                setRemoteStatus('Remote entry not found.', 'danger');
             }
         } catch (e) {
             console.error("Error loading document: ", e);
+              setRemoteStatus(`Failed to load entry: ${e.message || 'unknown error'}`, 'danger');
         }
     }
 
@@ -784,11 +1100,22 @@
           return;
       }
       
-      const selectedResult = resultSelect.disabled ? NO_RESULT_CODE : parseInt(resultSelect.value);
-      const score = a === CUSTOM_ARROW_STR ? parseInt(customScoreInput.value) : parseInt(a);
+      if (!resultSelect.disabled && !resultSelect.value) {
+        alert("Please select Kill or Wound.");
+        return;
+      }
+
+      const selectedResult = resultSelect.disabled ? NO_RESULT_CODE : parseInt(resultSelect.value, 10);
+      const customScoreValue = parseInt(customScoreInput.value, 10);
+      if (a === CUSTOM_ARROW_STR && (Number.isNaN(customScoreValue) || customScoreValue < 0)) {
+        alert("Please enter a valid custom score (0 or higher).");
+        return;
+      }
+
+      snapshotForUndo();
 
       entries[t] = {
-        arrows: a === CUSTOM_ARROW_STR ? score : a,
+        arrows: a === CUSTOM_ARROW_STR ? customScoreValue : a,
         resultType: selectedResult,
         notes: notesInput.value,
       };
@@ -800,18 +1127,102 @@
       if (remoteToggle.checked && firestoreInitialized) {
         try {
           const totalScore = calculateTotalScore();
+          const dateIso = new Date().toISOString();
+          const dateKey = getLocalDateKey();
           const newDoc = {
             name: name,
             totalScore: totalScore,
-            date: new Date().toISOString(),
+            date: dateIso,
+            dateKey: dateKey,
             entries: entries,
           };
-          await db.collection(LEADERBOARD_COLLECTION).add(newDoc);
-          console.log("Score saved to leaderboard.");
+
+          if (activeRemoteDocId) {
+            await db.collection(LEADERBOARD_COLLECTION).doc(activeRemoteDocId).set(newDoc, { merge: true });
+            activeRemoteMeta = {
+              name,
+              date: dateIso,
+              dateKey,
+            };
+            console.log("Score updated in leaderboard.");
+            setRemoteStatus('Remote score updated successfully.', 'success');
+            showToast('Remote updated', 'success');
+          } else {
+            // Upsert today's entry by archer name to avoid duplicate documents on repeated saves.
+            const existingQuery = await db.collection(LEADERBOARD_COLLECTION)
+              .where('name', '==', name)
+              .where('dateKey', '==', dateKey)
+              .limit(1)
+              .get();
+
+            if (!existingQuery.empty) {
+              const existingDoc = existingQuery.docs[0];
+              activeRemoteDocId = existingDoc.id;
+              await existingDoc.ref.set(newDoc, { merge: true });
+              activeRemoteMeta = {
+                name,
+                date: dateIso,
+                dateKey,
+              };
+              console.log("Score updated in leaderboard.");
+              setRemoteStatus('Remote score updated successfully.', 'success');
+              showToast('Remote updated', 'success');
+            } else {
+              const createdDoc = await db.collection(LEADERBOARD_COLLECTION).add(newDoc);
+              activeRemoteDocId = createdDoc.id;
+              activeRemoteMeta = {
+                name,
+                date: dateIso,
+                dateKey,
+              };
+              console.log("Score saved to leaderboard.");
+              setRemoteStatus('Remote score saved successfully.', 'success');
+              showToast('Remote saved', 'success');
+            }
+          }
+          updateEditStatus();
         } catch (e) {
           console.error("Error saving to leaderboard: ", e);
+          setRemoteStatus(`Failed to save remote score: ${e.message || 'unknown error'}`, 'danger');
+          showToast('Remote save failed', 'danger');
         }
       }
+    });
+
+    deleteBtn.addEventListener('click', () => {
+      const selectedTarget = targetSelect.value;
+      if (!selectedTarget) {
+        alert('Please select a target to delete.');
+        return;
+      }
+
+      if (!entries[selectedTarget]) {
+        alert('No saved score found for this target.');
+        return;
+      }
+
+      snapshotForUndo();
+      delete entries[selectedTarget];
+      saveLocal();
+      updateTable();
+      loadEntryIntoForm(selectedTarget);
+    });
+
+    undoBtn.addEventListener('click', () => {
+      if (!undoState) return;
+
+      entries = undoState.entries;
+      activeRemoteDocId = undoState.activeRemoteDocId;
+      activeRemoteMeta = undoState.activeRemoteMeta;
+      saveLocal();
+      updateTable();
+
+      targetSelect.value = undoState.selectedTarget || '';
+      loadEntryIntoForm(targetSelect.value);
+
+      undoState = null;
+      undoBtn.disabled = true;
+      updateEditStatus();
     });
 
     resetBtn.addEventListener('click', () => {
@@ -819,8 +1230,11 @@
     });
 
     confirmResetYes.addEventListener('click', () => {
+      snapshotForUndo();
       localStorage.removeItem('entries');
       entries = {};
+      activeRemoteDocId = null;
+      activeRemoteMeta = null;
       updateTable();
       confirmationModal.style.display = 'none';
       targetSelect.value = '';
@@ -828,6 +1242,7 @@
       resultSelect.value = '';
       notesInput.value = '';
       customScoreInput.value = '';
+      updateEditStatus();
     });
 
     confirmResetNo.addEventListener('click', () => {
@@ -837,44 +1252,16 @@
     showAllToggle.addEventListener('change', updateTable);
 
     targetSelect.addEventListener('change', () => {
-      const selectedTarget = targetSelect.value;
-      if (!selectedTarget) {
-        // If no target is selected, clear other fields
-        arrowsSelect.value = '';
-        resultSelect.value = '';
-        notesInput.value = '';
-        customScoreInput.value = '';
-        handleArrowsSelectChange();
-        return;
-      }
-      
-      const entryData = entries[selectedTarget];
-      if (entryData) {
-        if (entryData.arrows && (entryData.resultType === NO_RESULT_CODE) && (entryData.arrows !== MISS_ARROW_STR)) {
-            // This is a custom score
-            arrowsSelect.value = CUSTOM_ARROW_STR;
-            customScoreInput.value = entryData.arrows;
-        } else if (entryData.arrows === MISS_ARROW_STR) { // Miss
-            arrowsSelect.value = MISS_ARROW_STR;
-        } else {
-            arrowsSelect.value = entryData.arrows.toString(); // Standard 1, 2, 3
-        }
+      loadEntryIntoForm(targetSelect.value);
+    });
 
-        resultSelect.value = entryData.resultType;
-        notesInput.value = entryData.notes;
-      } else {
-        // If no data for this target, clear other fields
-        arrowsSelect.value = '';
-        resultSelect.value = '';
-        notesInput.value = '';
-        customScoreInput.value = ''; // Clear custom score input
-      }
+    // Click any local table row to load that target into the form and update it.
+    scoreBody.addEventListener('click', (e) => {
+      const row = e.target.closest('tr');
+      if (!row || !row.dataset.target) return;
 
-      // Ensure the correct result input (select or custom text) is shown/hidden
-      handleArrowsSelectChange();
-
-      // Scroll to the score form
-      scoreForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      targetSelect.value = row.dataset.target;
+      loadEntryIntoForm(row.dataset.target);
     });
 
     arrowsSelect.addEventListener('change', handleArrowsSelectChange);
@@ -896,6 +1283,8 @@
     // Initialize the state of resultSelect/customScoreInput based on current arrowsSelect value
     // This handles cases where 'Miss' or 'Custom' might be pre-selected on load (e.g., from local storage)
     handleArrowsSelectChange();
+    updateEditStatus();
+    setRemoteStatus('Remote database is disabled.');
 
     // Listen for window resize to adjust table columns dynamically
     window.addEventListener('resize', updateTable);
