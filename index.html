@@ -341,6 +341,17 @@
       margin-bottom: 0;
     }
 
+    .score-display-toggles {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.35rem;
+    }
+
+    .score-display-toggles .checkbox {
+      margin-left: 0 !important;
+    }
+
     /* Alignment adjustments for form buttons */
     .column .button {
         /* Adjusted margin-top to align with the notes input field */
@@ -423,6 +434,11 @@
           <label class="label">Notes</label>
           <input class="input is-rounded" type="text" id="notesInput" placeholder="Add notes (optional)">
         </div>
+        <!-- Bonus / Penalty Input -->
+        <div class="column is-one-third">
+          <label class="label">Bonus / Penalty</label>
+          <input class="input is-rounded" type="number" id="scoreAdjustmentInput" value="0" step="1">
+        </div>
         <!-- Save Target Button -->
         <div class="column is-one-quarter">
           <button class="button is-success is-rounded is-fullwidth" type="button" id="addBtn">Save</button>
@@ -440,9 +456,12 @@
           <button class="button is-warning is-rounded is-fullwidth" type="button" id="resetBtn">Reset All</button>
         </div>
         <!-- Show All Targets Toggle -->
-        <div class="column is-full">
+        <div class="column is-full score-display-toggles">
           <label class="checkbox mt-4">
             <input type="checkbox" id="showAllToggle" checked> Show all <span id="totalTargetsDisplay">25</span> targets (even un-scored)
+          </label>
+          <label class="checkbox mt-2">
+            <input type="checkbox" id="showNormalOnlyToggle"> Show normal rounds only (hide bonuses/penalties in table)
           </label>
         </div>
       </div>
@@ -465,7 +484,7 @@
           </tbody>
           <tfoot>
             <tr>
-              <th colspan="3">Total Score</th> <!-- Fixed colspan to span #, Arrows, Result -->
+              <th colspan="3" id="totalScoreLabel">Total Score (Adjusted)</th> <!-- Fixed colspan to span #, Arrows, Result -->
               <th id="totalScore">0</th>
               <th></th> <!-- Empty th for Notes column alignment -->
             </tr>
@@ -475,7 +494,8 @@
 
     <div class="summary-grid" aria-label="Local score summary">
       <div class="summary-card"><span class="summary-card__label">Targets scored</span><span class="summary-card__value" id="summaryTargets">0</span></div>
-      <div class="summary-card"><span class="summary-card__label">Total score</span><span class="summary-card__value" id="summaryScore">0</span></div>
+      <div class="summary-card"><span class="summary-card__label">Adjusted total</span><span class="summary-card__value" id="summaryScore">0</span></div>
+      <div class="summary-card"><span class="summary-card__label">Normal total</span><span class="summary-card__value" id="summaryNormalScore">0</span></div>
       <div class="summary-card"><span class="summary-card__label">Kills</span><span class="summary-card__value" id="summaryKills">0</span></div>
       <div class="summary-card"><span class="summary-card__label">Wounds</span><span class="summary-card__value" id="summaryWounds">0</span></div>
       <div class="summary-card"><span class="summary-card__label">Misses</span><span class="summary-card__value" id="summaryMisses">0</span></div>
@@ -508,10 +528,9 @@
         </div>
         <button class="button is-primary is-rounded ml-auto" id="refreshLeaderboard">Refresh Leaderboard</button>
       </div>
-      <div id="remoteStatus" class="remote-status">Remote database is disabled.</div>
       <div class="table-container">
         <table class="table is-striped is-hoverable is-fullwidth" id="leaderboardTable">
-          <thead><tr><th>Name</th><th>Date</th><th class="hide-on-mobile">Total Score</th></tr></thead>
+          <thead><tr><th>Name</th><th>Date</th><th class="hide-on-mobile">Adjusted Total</th><th class="hide-on-mobile">Normal Total</th></tr></thead>
           <tbody id="leaderboardBody">
             <!-- Leaderboard entries will be dynamically inserted here -->
           </tbody>
@@ -559,16 +578,20 @@
     const customScoreInput = document.getElementById('customScoreInput'); // New custom score input
     const customScoreInputWrapper = document.getElementById('customScoreInputWrapper'); // New custom score input wrapper
     const notesInput = document.getElementById('notesInput');
+    const scoreAdjustmentInput = document.getElementById('scoreAdjustmentInput');
     const addBtn = document.getElementById('addBtn');
     const deleteBtn = document.getElementById('deleteBtn');
     const undoBtn = document.getElementById('undoBtn');
     const resetBtn = document.getElementById('resetBtn');
     const showAllToggle = document.getElementById('showAllToggle');
+    const showNormalOnlyToggle = document.getElementById('showNormalOnlyToggle');
     const totalTargetsDisplay = document.getElementById('totalTargetsDisplay'); // Element to display total targets
     const scoreBody = document.getElementById('scoreBody');
+    const totalScoreLabel = document.getElementById('totalScoreLabel');
     const totalScoreEl = document.getElementById('totalScore');
     const summaryTargets = document.getElementById('summaryTargets');
     const summaryScore = document.getElementById('summaryScore');
+    const summaryNormalScore = document.getElementById('summaryNormalScore');
     const summaryKills = document.getElementById('summaryKills');
     const summaryWounds = document.getElementById('summaryWounds');
     const summaryMisses = document.getElementById('summaryMisses');
@@ -610,6 +633,7 @@
     const RESULT_CODES_MAP = { [KILL_CODE]: 'Kill', [WOUND_CODE]: 'Wound', [NO_RESULT_CODE]: '' // For Miss or Custom, no specific result type
     };
     const PENDING_REMOTE_QUEUE_KEY = 'pendingRemoteQueue_v1';
+    const SHOW_NORMAL_ONLY_KEY = 'showNormalOnly';
     // Get total targets from scores.js, default to 25 if not defined
     const TOTAL_TARGETS = window.scores?.TOTAL_TARGETS || 25;
     totalTargetsDisplay.textContent = TOTAL_TARGETS; // Update display in HTML
@@ -654,6 +678,91 @@
     }
 
     /**
+     * Normalizes entry adjustment fields and migrates legacy global adjustment if present.
+     * @param {object} sourceEntries - Entries object.
+     * @param {number} legacyGlobalAdjustment - Previous global adjustment value.
+     * @returns {object} Normalized entries.
+     */
+    function normalizeEntries(sourceEntries, legacyGlobalAdjustment = 0) {
+      const normalized = sourceEntries && typeof sourceEntries === 'object' ? sourceEntries : {};
+      const targetKeys = Object.keys(normalized).sort((a, b) => Number(a) - Number(b));
+
+      targetKeys.forEach(target => {
+        const entry = normalized[target] || {};
+        const parsedAdjustment = parseInt(entry.adjustment ?? 0, 10);
+        normalized[target] = {
+          ...entry,
+          adjustment: Number.isNaN(parsedAdjustment) ? 0 : parsedAdjustment,
+        };
+      });
+
+      if (legacyGlobalAdjustment !== 0) {
+        const hasExistingAdjustment = targetKeys.some(target => {
+          const adj = parseInt(normalized[target]?.adjustment ?? 0, 10);
+          return !Number.isNaN(adj) && adj !== 0;
+        });
+
+        if (!hasExistingAdjustment && targetKeys.length > 0) {
+          const firstTarget = targetKeys[0];
+          normalized[firstTarget].adjustment = (parseInt(normalized[firstTarget].adjustment || 0, 10) || 0) + legacyGlobalAdjustment;
+        }
+      }
+
+      return normalized;
+    }
+
+    /**
+     * Checks whether an entry has a saved score input.
+     * @param {object} entry - Entry object.
+     * @returns {boolean} True when score input exists.
+     */
+    function hasSavedScore(entry) {
+      return entry && entry.arrows !== undefined && entry.arrows !== null && entry.arrows !== '';
+    }
+
+    /**
+     * Gets the base score (without adjustment) for an entry.
+     * @param {object} entry - Entry object.
+     * @returns {number} Base score.
+     */
+    function getBaseEntryScore(entry) {
+      if (!hasSavedScore(entry)) return 0;
+      if (entry.arrows === MISS_ARROW_STR) return 0;
+      if (entry.resultType === KILL_CODE || entry.resultType === WOUND_CODE) {
+        return window.scores[entry.resultType][entry.arrows];
+      }
+      return parseInt(entry.arrows, 10) || 0;
+    }
+
+    /**
+     * Gets the per-entry bonus or penalty.
+     * @param {object} entry - Entry object.
+     * @returns {number} Adjustment value.
+     */
+    function getEntryAdjustment(entry) {
+      const parsed = parseInt(entry?.adjustment ?? 0, 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    /**
+     * Checks whether an entry is a custom score round.
+     * @param {object} entry - Entry object.
+     * @returns {boolean} True when round is custom.
+     */
+    function isCustomRound(entry) {
+      return hasSavedScore(entry) && entry.resultType === NO_RESULT_CODE && entry.arrows !== MISS_ARROW_STR;
+    }
+
+    /**
+     * Gets the adjusted score for an entry.
+     * @param {object} entry - Entry object.
+     * @returns {number} Adjusted score.
+     */
+    function getAdjustedEntryScore(entry) {
+      return getBaseEntryScore(entry) + getEntryAdjustment(entry);
+    }
+
+    /**
      * Returns a display timestamp for status updates.
      * @returns {string} Time label.
      */
@@ -671,20 +780,31 @@
      * @param {'default'|'success'|'warning'|'danger'} tone - Visual tone.
      */
     function setRemoteStatus(message, tone = 'default') {
-      remoteStatus.textContent = `${message} | Last update: ${getStatusTimeLabel()}`;
-      footerStatus.textContent = remoteStatus.textContent;
+      const statusText = `${message} | Last update: ${getStatusTimeLabel()}`;
+      if (remoteStatus) {
+        remoteStatus.textContent = statusText;
+      }
+      footerStatus.textContent = statusText;
       footerStatus.classList.remove('is-success', 'is-warning', 'is-danger');
-      remoteStatus.classList.remove('is-success', 'is-warning', 'is-danger');
+      if (remoteStatus) {
+        remoteStatus.classList.remove('is-success', 'is-warning', 'is-danger');
+      }
       if (tone === 'success') {
-        remoteStatus.classList.add('is-success');
+        if (remoteStatus) {
+          remoteStatus.classList.add('is-success');
+        }
         footerStatus.classList.add('is-success');
       }
       if (tone === 'warning') {
-        remoteStatus.classList.add('is-warning');
+        if (remoteStatus) {
+          remoteStatus.classList.add('is-warning');
+        }
         footerStatus.classList.add('is-warning');
       }
       if (tone === 'danger') {
-        remoteStatus.classList.add('is-danger');
+        if (remoteStatus) {
+          remoteStatus.classList.add('is-danger');
+        }
         footerStatus.classList.add('is-danger');
       }
     }
@@ -817,7 +937,7 @@
           Object.keys(window.scores[WOUND_CODE]).forEach(k => arrowValues.add(parseInt(k)));
         }
         // Add standard arrow options, sorted in ascending order (1, 2, 3)
-        Array.from(arrowValues).sort((a,b) => b-a).forEach(val => { // Changed sort order to b-a
+        Array.from(arrowValues).sort((a, b) => a - b).forEach(val => {
           if (val !== 0) { // '0' is handled as 'Miss' explicitly
             arrowsSelect.add(new Option(val.toString(), val.toString()));
           }
@@ -845,14 +965,49 @@
       let total = 0;
       for (const target in entries) {
         const entry = entries[target];
-        if (entry.resultType === KILL_CODE || entry.resultType === WOUND_CODE) {
-          total += window.scores[entry.resultType][entry.arrows];
-        } else if (entry.arrows !== MISS_ARROW_STR) {
-          // This is a custom score
-          total += parseInt(entry.arrows, 10);
-        }
+        total += getAdjustedEntryScore(entry);
       }
       return total;
+    }
+
+    /**
+     * Calculates the adjusted total score from an entries object.
+     * @param {object} sourceEntries - Entries to evaluate.
+     * @returns {number} Adjusted total score.
+     */
+    function calculateAdjustedTotalScoreFromEntries(sourceEntries) {
+      if (!sourceEntries || typeof sourceEntries !== 'object') return 0;
+
+      let total = 0;
+      for (const target in sourceEntries) {
+        total += getAdjustedEntryScore(sourceEntries[target]);
+      }
+      return total;
+    }
+
+    /**
+     * Calculates the total score without bonuses or custom rounds from an entries object.
+     * @param {object} sourceEntries - Entries to evaluate.
+     * @returns {number} Normal total score.
+     */
+    function calculateNormalTotalScoreFromEntries(sourceEntries) {
+      if (!sourceEntries || typeof sourceEntries !== 'object') return 0;
+
+      let total = 0;
+      for (const target in sourceEntries) {
+        const entry = sourceEntries[target];
+        if (isCustomRound(entry)) continue;
+        total += getBaseEntryScore(entry);
+      }
+      return total;
+    }
+
+    /**
+     * Calculates the normal total for the local score state.
+     * @returns {number} Normal total score.
+     */
+    function calculateNormalTotalScore() {
+      return calculateNormalTotalScoreFromEntries(entries);
     }
 
     /**
@@ -862,7 +1017,8 @@
     function calculateScoreSummary() {
       const summary = {
         targets: Object.keys(entries).length,
-        totalScore: 0,
+        adjustedTotal: 0,
+        normalTotal: 0,
         kills: 0,
         wounds: 0,
         misses: 0,
@@ -876,10 +1032,9 @@
         if (entry.arrows === MISS_ARROW_STR) summary.misses += 1;
         if (entry.resultType === NO_RESULT_CODE && entry.arrows !== MISS_ARROW_STR) summary.custom += 1;
 
-        if (entry.resultType === KILL_CODE || entry.resultType === WOUND_CODE) {
-          summary.totalScore += window.scores[entry.resultType][entry.arrows];
-        } else if (entry.arrows !== MISS_ARROW_STR) {
-          summary.totalScore += parseInt(entry.arrows, 10);
+        summary.adjustedTotal += getAdjustedEntryScore(entry);
+        if (!isCustomRound(entry)) {
+          summary.normalTotal += getBaseEntryScore(entry);
         }
       }
 
@@ -891,6 +1046,7 @@
      */
     function saveLocal() {
       localStorage.setItem('entries', JSON.stringify(entries));
+      localStorage.removeItem('scoreAdjustment');
     }
 
     /**
@@ -901,6 +1057,10 @@
       if (storedEntries) {
         entries = JSON.parse(storedEntries);
       }
+      const legacyGlobalAdjustment = parseInt(localStorage.getItem('scoreAdjustment') || '0', 10) || 0;
+      entries = normalizeEntries(entries, legacyGlobalAdjustment);
+      scoreAdjustmentInput.value = 0;
+      showNormalOnlyToggle.checked = localStorage.getItem(SHOW_NORMAL_ONLY_KEY) === 'true';
     }
 
     /**
@@ -908,9 +1068,10 @@
      */
     function updateTable() {
       scoreBody.innerHTML = ''; // Clear the table body
-      let total = 0;
+      let displayedTotal = 0;
       let targetsScored = Object.keys(entries).map(Number);
       let allTargets = [];
+      const showNormalOnly = showNormalOnlyToggle.checked;
 
       for (let i = 1; i <= TOTAL_TARGETS; i++) {
         allTargets.push(i);
@@ -920,21 +1081,21 @@
 
       targetsToDisplay.forEach(target => {
         const entry = entries[target] || {};
+        if (showNormalOnly && isCustomRound(entry)) {
+          return;
+        }
+
         const isMissed = entry.arrows === MISS_ARROW_STR;
+        const isCustom = isCustomRound(entry);
         const resultType = entry.resultType;
         let score = '';
 
-        if (entry.arrows) {
-          if (isMissed) {
-            score = 0;
-          } else if (resultType === KILL_CODE || resultType === WOUND_CODE) {
-            score = window.scores[resultType][entry.arrows];
-          } else {
-            // Custom score
-            score = entry.arrows;
-          }
+        if (hasSavedScore(entry)) {
+          const baseScore = getBaseEntryScore(entry);
+          const adjustedScore = getAdjustedEntryScore(entry);
+          score = showNormalOnly ? baseScore : adjustedScore;
         }
-        total += parseInt(score || 0, 10);
+        displayedTotal += parseInt(score || 0, 10);
 
         const row = document.createElement('tr');
         if (!entry.arrows) {
@@ -943,10 +1104,12 @@
         
         row.dataset.target = target;
         row.dataset.docId = entry.docId || ''; // Add docId to the row for later use
+
+        const arrowsDisplay = isMissed ? 'Miss' : (isCustom ? 'Custom' : (entry.arrows || ''));
         
         row.innerHTML = `
           <td>${target}</td>
-          <td>${isMissed ? 'Miss' : (entry.arrows || '')}</td>
+          <td>${arrowsDisplay}</td>
           <td>${RESULT_CODES_MAP[resultType] || ''}</td>
           <td>${score}</td>
           <td>${entry.notes || ''}</td>
@@ -954,10 +1117,12 @@
         scoreBody.appendChild(row);
       });
 
-      totalScoreEl.textContent = total;
+      totalScoreLabel.textContent = showNormalOnly ? 'Total Score (Normal)' : 'Total Score (Adjusted)';
+      totalScoreEl.textContent = displayedTotal;
       const summary = calculateScoreSummary();
       summaryTargets.textContent = summary.targets;
-      summaryScore.textContent = summary.totalScore;
+      summaryScore.textContent = summary.adjustedTotal;
+      summaryNormalScore.textContent = summary.normalTotal;
       summaryKills.textContent = summary.kills;
       summaryWounds.textContent = summary.wounds;
       summaryMisses.textContent = summary.misses;
@@ -989,6 +1154,7 @@
         resultSelect.value = '';
         notesInput.value = '';
         customScoreInput.value = '';
+        scoreAdjustmentInput.value = 0;
         handleArrowsSelectChange();
         highlightSelectedTargetRow('');
         return;
@@ -1008,12 +1174,14 @@
 
         resultSelect.value = entryData.resultType;
         notesInput.value = entryData.notes;
+        scoreAdjustmentInput.value = getEntryAdjustment(entryData);
       } else {
         // If no data for this target, clear other fields.
         arrowsSelect.value = '';
         resultSelect.value = '';
         notesInput.value = '';
         customScoreInput.value = '';
+        scoreAdjustmentInput.value = 0;
       }
 
       handleArrowsSelectChange();
@@ -1159,7 +1327,7 @@
     function renderLeaderboard(data) {
         leaderboardBody.innerHTML = '';
         if (data.length === 0) {
-          leaderboardBody.innerHTML = '<tr><td colspan="3">No scores available for this selection.</td></tr>';
+          leaderboardBody.innerHTML = '<tr><td colspan="4">No scores available for this selection.</td></tr>';
             return;
         }
 
@@ -1167,13 +1335,20 @@
             const date = new Date(entry.date);
             const dateString = date.toLocaleDateString();
             const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const adjustedTotal = Number.isFinite(entry.totalScore)
+              ? entry.totalScore
+              : calculateAdjustedTotalScoreFromEntries(entry.entries || {});
+            const normalTotal = Number.isFinite(entry.normalTotal)
+              ? entry.normalTotal
+              : calculateNormalTotalScoreFromEntries(entry.entries || {});
 
             const row = document.createElement('tr');
             row.dataset.docId = entry.id; // Store Firestore doc ID
             row.innerHTML = `
                 <td>${entry.name}</td>
                 <td>${dateString} <br> ${timeString}</td>
-                <td>${entry.totalScore}</td>
+                <td class="hide-on-mobile">${adjustedTotal}</td>
+                <td class="hide-on-mobile">${normalTotal}</td>
             `;
             leaderboardBody.appendChild(row);
         });
@@ -1245,6 +1420,7 @@
             if (doc.exists) {
                 const data = doc.data();
                 entries = data.entries;
+              entries = normalizeEntries(entries, parseInt(data.scoreAdjustment || 0, 10) || 0);
               activeRemoteDocId = docId;
                 // Since this is a new remote entry, we save it locally for now.
                 // You could add a docId field to the local entries if you want to track it.
@@ -1285,6 +1461,8 @@
         } else {
           score = entry.arrows;
         }
+
+        score += getEntryAdjustment(entry);
 
         rows.push([
           target,
@@ -1335,7 +1513,7 @@
         }
 
         snapshotForUndo();
-        entries = data.entries;
+        entries = normalizeEntries(data.entries, parseInt(data.scoreAdjustment || 0, 10) || 0);
         saveLocal();
         updateTable();
         showToast('Backup imported', 'success');
@@ -1353,7 +1531,7 @@
       applyLeaderboardFilters();
     });
     leaderboardLimit.addEventListener('change', () => applyLeaderboardFilters());
-    
+
     refreshLb.addEventListener('click', () => fetchLeaderboard());
 
     addBtn.addEventListener('click', async () => {
@@ -1374,8 +1552,13 @@
 
       const selectedResult = resultSelect.disabled ? NO_RESULT_CODE : parseInt(resultSelect.value, 10);
       const customScoreValue = parseInt(customScoreInput.value, 10);
+      const adjustmentValue = parseInt(scoreAdjustmentInput.value || '0', 10);
       if (a === CUSTOM_ARROW_STR && (Number.isNaN(customScoreValue) || customScoreValue < 0)) {
         alert("Please enter a valid custom score (0 or higher).");
+        return;
+      }
+      if (Number.isNaN(adjustmentValue)) {
+        alert("Please enter a valid bonus or penalty value.");
         return;
       }
 
@@ -1385,6 +1568,7 @@
         arrows: a === CUSTOM_ARROW_STR ? customScoreValue : a,
         resultType: selectedResult,
         notes: notesInput.value,
+        adjustment: adjustmentValue,
       };
       
       saveLocal();
@@ -1394,11 +1578,13 @@
       if (remoteToggle.checked && firestoreInitialized) {
         try {
           const totalScore = calculateTotalScore();
+          const normalTotal = calculateNormalTotalScore();
           const dateIso = new Date().toISOString();
           const dateKey = getLocalDateKey();
           const newDoc = {
             name: name,
             totalScore: totalScore,
+            normalTotal: normalTotal,
             date: dateIso,
             dateKey: dateKey,
             entries: entries,
@@ -1481,6 +1667,7 @@
       snapshotForUndo();
       localStorage.removeItem('entries');
       entries = {};
+      scoreAdjustmentInput.value = 0;
       activeRemoteDocId = null;
       updateTable();
       confirmationModal.style.display = 'none';
@@ -1516,6 +1703,10 @@
     });
 
     showAllToggle.addEventListener('change', updateTable);
+    showNormalOnlyToggle.addEventListener('change', () => {
+      localStorage.setItem(SHOW_NORMAL_ONLY_KEY, showNormalOnlyToggle.checked ? 'true' : 'false');
+      updateTable();
+    });
 
     targetSelect.addEventListener('change', () => {
       loadEntryIntoForm(targetSelect.value);
